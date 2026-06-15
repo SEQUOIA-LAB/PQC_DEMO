@@ -1,0 +1,4 @@
+# Pinned Python dependencies (PROJECT_PLAN.md §12: pin everything).
+# Install into a venv: python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+cryptography==44.0.0
+jsonschema==4.23.0

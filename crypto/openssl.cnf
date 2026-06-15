@@ -1,0 +1,25 @@
+# crypto/openssl.cnf — minimal config for the demo's OpenSSL CLI invocations.
+#
+# `make install_sw` (crypto/setup-openssl.sh) installs libraries + the binary
+# but NOT a default openssl.cnf. `req`/`x509`/`ca` need a config present, so we
+# ship this minimal one and point OPENSSL_CONF at it (app/gen_certs.py does this
+# automatically). It loads the default provider so ML-DSA/ML-KEM are available.
+
+openssl_conf = openssl_init
+
+[openssl_init]
+providers = provider_sect
+
+[provider_sect]
+default = default_sect
+
+[default_sect]
+activate = 1
+
+# Minimal req defaults so -subj works without prompting and -x509 has a section.
+[req]
+distinguished_name = req_dn
+prompt = no
+
+[req_dn]
+CN = pqc-demo

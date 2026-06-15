@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>PQC-TLS Demo Dashboard</title>
+<style>
+  :root { --bg:#0b0f17; --panel:#131a26; --line:#243044; --fg:#e6edf3;
+          --accent:#5eead4; --client:#7dd3fc; --server:#fca5a5; --muted:#8b98a9; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:14px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;
+         background:var(--bg); color:var(--fg); }
+  header { padding:16px 24px; border-bottom:1px solid var(--line);
+           display:flex; align-items:baseline; gap:16px; flex-wrap:wrap; }
+  header h1 { font-size:18px; margin:0; }
+  header .suite { color:var(--muted); font-size:12px; }
+  header .suite b { color:var(--accent); }
+  main { display:grid; grid-template-columns: 1fr 1fr; gap:16px; padding:24px; }
+  .panel { background:var(--panel); border:1px solid var(--line);
+           border-radius:10px; padding:16px; }
+  .panel h2 { margin:0 0 12px; font-size:13px; text-transform:uppercase;
+              letter-spacing:.08em; color:var(--muted); }
+  .full { grid-column:1 / -1; }
+  input[type=text] { width:100%; padding:10px; background:#0b1018;
+    border:1px solid var(--line); color:var(--fg); border-radius:6px; font:inherit; }
+  button { padding:10px 16px; background:var(--accent); color:#06231f;
+    border:none; border-radius:6px; font:inherit; font-weight:700; cursor:pointer; }
+  button.ghost { background:transparent; color:var(--fg); border:1px solid var(--line); }
+  .row { display:flex; gap:10px; align-items:center; margin-top:10px; flex-wrap:wrap; }
+  .stage { border:1px solid var(--line); border-radius:8px; padding:10px 12px;
+           margin:8px 0; opacity:.35; transition:opacity .2s, border-color .2s; }
+  .stage.active { opacity:1; border-color:var(--accent); box-shadow:0 0 0 1px var(--accent) inset; }
+  .stage .head { display:flex; justify-content:space-between; gap:8px; }
+  .stage .tag { font-size:11px; padding:1px 7px; border-radius:10px; }
+  .tag.client { background:#0b2a3a; color:var(--client); }
+  .tag.server { background:#3a1414; color:var(--server); }
+  .stage .hr { color:var(--accent); word-break:break-all; margin-top:4px; }
+  .stage .meta { color:var(--muted); font-size:12px; margin-top:2px; }
+  .bytes { color:var(--muted); font-size:11px; word-break:break-all;
+           max-height:0; overflow:hidden; transition:max-height .2s; }
+  .stage.active .bytes { max-height:140px; overflow:auto; margin-top:6px; }
+  .metrics td { padding:4px 14px 4px 0; }
+  .muted { color:var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <h1>PQC-TLS Demo</h1>
+  <span class="suite" id="suite">group <b>X25519MLKEM768</b> · sig <b>ML-DSA-65</b> · TLS 1.3 · app AEAD <b>AES-256-GCM</b></span>
+</header>
+
+<main>
+  <section class="panel full">
+    <h2>Operator message</h2>
+    <div class="row">
+      <input id="msg" type="text" value="hello quantum world"
+             placeholder="type a message to send over the PQC-TLS channel" />
+      <button id="send">Send through channel</button>
+      <span id="status" class="muted"></span>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Stepped view — client (sender)</h2>
+    <div id="client-stages"></div>
+  </section>
+
+  <section class="panel">
+    <h2>Stepped view — server (receiver)</h2>
+    <div id="server-stages"></div>
+  </section>
+
+  <section class="panel full">
+    <h2>Replay controls</h2>
+    <div class="row">
+      <button id="replay" class="ghost">▶ Replay step-by-step</button>
+      <button id="step" class="ghost">⏭ Step</button>
+      <button id="reset" class="ghost">⟲ Reset</button>
+      <span id="replay-status" class="muted"></span>
+    </div>
+  </section>
+
+  <section class="panel full">
+    <h2>Live metrics (PQC vs classical — measured on the Pi, Phase 4)</h2>
+    <table class="metrics"><tbody id="metrics">
+      <tr><td class="muted">No metrics yet. Run the metrics harness on the Pi (Phase 4).</td></tr>
+    </tbody></table>
+  </section>
+</main>
+
+<script>
+const STAGE_ORDER = ["keygen","encapsulate","derive_secret","sign_transcript",
+  "verify_signature","aead_encrypt","transmit","aead_decrypt","verify"];
+
+let events = [];
+let replayIdx = 0;
+let replayTimer = null;
+
+function stageCard(ev) {
+  const el = document.createElement("div");
+  el.className = "stage";
+  el.dataset.seq = ev.seq ?? 0;
+  el.innerHTML = `
+    <div class="head">
+      <strong>${ev.stage} · ${ev.artifact_type}</strong>
+      <span class="tag ${ev.side}">${ev.side}</span>
+    </div>
+    <div class="hr">${escapeHtml(ev.human_readable ?? "")}</div>
+    <div class="meta">${ev.algorithm ?? ""} · ${ev.size_bytes} bytes${ev.note ? " · " + escapeHtml(ev.note) : ""}</div>
+    <div class="bytes">${ev.artifact_bytes_b64 ? "b64: " + ev.artifact_bytes_b64 : "(no extractable bytes)"}</div>`;
+  return el;
+}
+
+function render() {
+  const c = document.getElementById("client-stages");
+  const s = document.getElementById("server-stages");
+  c.innerHTML = ""; s.innerHTML = "";
+  for (const ev of events) {
+    (ev.side === "client" ? c : s).appendChild(stageCard(ev));
+  }
+}
+
+function setActiveUpTo(seq) {
+  document.querySelectorAll(".stage").forEach(el => {
+    el.classList.toggle("active", Number(el.dataset.seq) <= seq);
+  });
+}
+
+async function loadEvents() {
+  events = await (await fetch("/api/events")).json();
+  events.sort((a,b)=>(a.seq??0)-(b.seq??0));
+  render();
+  setActiveUpTo(1e9); // all on by default
+}
+
+document.getElementById("send").onclick = async () => {
+  const message = document.getElementById("msg").value;
+  const status = document.getElementById("status");
+  status.textContent = "running real PQC-TLS handshake + send…";
+  const r = await fetch("/api/run", {method:"POST",
+    headers:{"Content-Type":"application/json"}, body:JSON.stringify({message})});
+  const data = await r.json();
+  events = (data.events||[]).sort((a,b)=>(a.seq??0)-(b.seq??0));
+  render(); setActiveUpTo(1e9);
+  status.textContent = data.returncode === 0
+    ? "✓ delivered over X25519MLKEM768 + ML-DSA-65" : "✗ failed (see server log)";
+};
+
+document.getElementById("replay").onclick = () => {
+  resetReplay();
+  replayTimer = setInterval(() => {
+    if (replayIdx >= events.length) { clearInterval(replayTimer); return; }
+    replayIdx++;
+    setActiveUpTo(events[replayIdx-1].seq);
+    document.getElementById("replay-status").textContent =
+      `step ${replayIdx}/${events.length}: ${events[replayIdx-1].stage}`;
+  }, 1100);
+};
+document.getElementById("step").onclick = () => {
+  if (replayIdx >= events.length) return;
+  replayIdx++;
+  setActiveUpTo(events[replayIdx-1].seq);
+  document.getElementById("replay-status").textContent =
+    `step ${replayIdx}/${events.length}: ${events[replayIdx-1].stage}`;
+};
+document.getElementById("reset").onclick = resetReplay;
+function resetReplay() {
+  if (replayTimer) clearInterval(replayTimer);
+  replayIdx = 0;
+  document.querySelectorAll(".stage").forEach(el => el.classList.remove("active"));
+  document.getElementById("replay-status").textContent = "reset";
+}
+
+async function loadMetrics() {
+  try {
+    const m = await (await fetch("/api/metrics")).json();
+    if (m && !m.note) {
+      const rows = Object.entries(m).map(([k,v]) =>
+        `<tr><td class="muted">${k}</td><td>${JSON.stringify(v)}</td></tr>`).join("");
+      document.getElementById("metrics").innerHTML = rows;
+    }
+  } catch (e) {}
+}
+
+function escapeHtml(s){return String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));}
+
+loadEvents(); loadMetrics();
+</script>
+</body>
+</html>

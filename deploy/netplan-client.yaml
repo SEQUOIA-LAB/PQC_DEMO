@@ -1,0 +1,18 @@
+# deploy/netplan-client.yaml — Pi-B (the client), demo-plane ethernet.
+# Identical to the server config but with 10.0.0.2 (PROJECT_PLAN.md §8).
+#
+# VERIFY the interface name first:  ip link   (usually eth0, but confirm).
+# If the Pi runs Ubuntu Desktop (NetworkManager), set renderer: NetworkManager.
+#
+# Apply:
+#   sudo cp deploy/netplan-client.yaml /etc/netplan/99-demo-link.yaml
+#   sudo netplan apply
+#   ping 10.0.0.1     # from the client, should reach the server
+network:
+  version: 2
+  renderer: networkd        # Ubuntu Server. Use NetworkManager if Desktop.
+  ethernets:
+    eth0:                   # <-- replace with the verified interface name
+      dhcp4: no
+      addresses: [10.0.0.2/24]
+      # intentionally no gateway/routes — this link is point-to-point.

@@ -1,0 +1,14 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Generated certs (regenerate with `python -m app.gen_certs`)
+certs/
+
+# Runtime artifacts (events, keylogs, metrics)
+runs/
+
+# Build artifacts
+/tmp/
+*.keylog

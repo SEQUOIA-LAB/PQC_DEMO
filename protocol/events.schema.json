@@ -1,0 +1,70 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/PQC_DEMO/protocol/events.schema.json",
+  "title": "PQC-TLS Demo dashboard event",
+  "description": "Every stage the dashboard renders is one event with this fixed shape. Both Pis (server + client) emit these. This schema is locked early; everything downstream (app/, capture/, replay/, dashboard/) depends on it. See PROJECT_PLAN.md section 7.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "stage",
+    "side",
+    "timestamp",
+    "artifact_type",
+    "size_bytes"
+  ],
+  "properties": {
+    "stage": {
+      "description": "Which pipeline stage produced this event. Ordered roughly by handshake/message flow.",
+      "type": "string",
+      "enum": [
+        "keygen",
+        "encapsulate",
+        "derive_secret",
+        "sign_transcript",
+        "verify_signature",
+        "aead_encrypt",
+        "transmit",
+        "aead_decrypt",
+        "verify"
+      ]
+    },
+    "side": {
+      "description": "Which role emitted the event.",
+      "type": "string",
+      "enum": ["server", "client"]
+    },
+    "timestamp": {
+      "description": "Unix epoch seconds with fractional milliseconds, when the artifact was produced.",
+      "type": "number"
+    },
+    "artifact_type": {
+      "description": "Human/machine label for what artifact_bytes_b64 holds (e.g. 'ml_kem_768_public_key', 'ml_kem_768_ciphertext', 'ml_dsa_65_signature', 'aead_ciphertext', 'aead_tag', 'shared_secret_fingerprint', 'plaintext', 'wire_frame').",
+      "type": "string"
+    },
+    "artifact_bytes_b64": {
+      "description": "The raw artifact, base64-encoded. May be omitted when the artifact is not byte-extractable (e.g. a derived secret exposed only as a fingerprint — see human_readable / PROJECT_PLAN.md section 13).",
+      "type": ["string", "null"]
+    },
+    "human_readable": {
+      "description": "A short string the dashboard shows verbatim: a hex preview, a fingerprint, decoded plaintext, or an explanatory note.",
+      "type": ["string", "null"]
+    },
+    "size_bytes": {
+      "description": "Size in bytes of the underlying artifact (NOT of the base64 string). For non-extractable artifacts, the real size if known, else 0.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "algorithm": {
+      "description": "Optional FIPS algorithm name this stage exercised (e.g. 'ML-KEM-768', 'ML-DSA-65', 'X25519MLKEM768', 'AES-256-GCM').",
+      "type": ["string", "null"]
+    },
+    "seq": {
+      "description": "Optional monotonically increasing sequence number within a single run, for stable replay ordering.",
+      "type": ["integer", "null"]
+    },
+    "note": {
+      "description": "Optional free-form annotation (e.g. 'shared secret not extractable from TLS; showing SHA-256 fingerprint').",
+      "type": ["string", "null"]
+    }
+  }
+}

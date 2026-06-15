@@ -1,0 +1,62 @@
+# docker/Dockerfile.pi-proxy
+#
+# An arm64 Ubuntu 23.10 image that mirrors the Raspberry Pi's userland
+# (PROJECT_PLAN.md §9.3). On an Apple Silicon Mac this runs NATIVELY under
+# linux/arm64 — same word size/endianness/alignment as the Pi's Cortex-A72,
+# but real Linux ELF + glibc + netplan-adjacent userland. Catch ELF/glibc
+# issues here, NOT on the Pi.
+#
+# Build (from repo root):
+#   docker build --platform linux/arm64 -f docker/Dockerfile.pi-proxy -t pqc-pi-proxy .
+#
+# Run an interactive shell with the repo mounted:
+#   docker run --rm -it --platform linux/arm64 -v "$PWD":/work -w /work pqc-pi-proxy bash
+#
+# Inside, build OpenSSL the same way the Pi will:
+#   JOBS=4 crypto/setup-openssl.sh
+#
+# NOTE: Ubuntu 23.10 (mantic) is EOL (PROJECT_PLAN.md §3, §12). Its apt
+# archives have moved to old-releases.ubuntu.com; we rewrite the mirrors below
+# so `apt-get` works. Recommend 24.04 LTS to Ben if a reinstall is acceptable.
+
+FROM --platform=linux/arm64 ubuntu:23.10
+
+# Avoid interactive tzdata prompts during apt installs.
+ENV DEBIAN_FRONTEND=noninteractive
+
+# 23.10 is EOL: repoint apt at old-releases.ubuntu.com. This covers both the
+# legacy /etc/apt/sources.list and the newer deb822 .sources layout.
+RUN set -eux; \
+    if [ -f /etc/apt/sources.list ]; then \
+      sed -i -e 's|http://archive.ubuntu.com/ubuntu|http://old-releases.ubuntu.com/ubuntu|g' \
+             -e 's|http://security.ubuntu.com/ubuntu|http://old-releases.ubuntu.com/ubuntu|g' \
+             /etc/apt/sources.list; \
+    fi; \
+    if [ -f /etc/apt/sources.list.d/ubuntu.sources ]; then \
+      sed -i -e 's|http://archive.ubuntu.com/ubuntu|http://old-releases.ubuntu.com/ubuntu|g' \
+             -e 's|http://security.ubuntu.com/ubuntu|http://old-releases.ubuntu.com/ubuntu|g' \
+             /etc/apt/sources.list.d/ubuntu.sources; \
+    fi
+
+# Toolchain to build OpenSSL from source + Python for the app/dashboard layer.
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+      build-essential \
+      perl \
+      ca-certificates \
+      curl \
+      wget \
+      git \
+      pkg-config \
+      python3 \
+      python3-pip \
+      python3-venv \
+      iproute2 \
+      iputils-ping; \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /work
+
+# The repo is mounted at runtime (-v "$PWD":/work). Default to a shell.
+CMD ["bash"]

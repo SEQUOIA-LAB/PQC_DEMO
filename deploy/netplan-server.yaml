@@ -1,0 +1,19 @@
+# deploy/netplan-server.yaml — Pi-A (the server), demo-plane ethernet.
+# Direct point-to-point link to Pi-B. No gateway/routes (PROJECT_PLAN.md §8).
+#
+# VERIFY the interface name first:  ip link   (usually eth0, but confirm).
+# If the Pi runs Ubuntu Desktop (NetworkManager), set renderer: NetworkManager
+# (detect with: nmcli -v).
+#
+# Apply:
+#   sudo cp deploy/netplan-server.yaml /etc/netplan/99-demo-link.yaml
+#   sudo netplan apply
+#   ping 10.0.0.2     # from the server, should reach the client
+network:
+  version: 2
+  renderer: networkd        # Ubuntu Server. Use NetworkManager if Desktop.
+  ethernets:
+    eth0:                   # <-- replace with the verified interface name
+      dhcp4: no
+      addresses: [10.0.0.1/24]
+      # intentionally no gateway/routes — this link is point-to-point.
