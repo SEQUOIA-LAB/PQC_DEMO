@@ -33,15 +33,20 @@ def _read_exact(stream, n: int) -> bytes:
 
 
 def main() -> int:
+    suite = load_suite()
     ap = argparse.ArgumentParser()
-    ap.add_argument("--salt", required=True, help="shared run salt (hex); must match client")
-    ap.add_argument("--host", default="127.0.0.1")
+    ap.add_argument("--salt", default=suite.demo_salt,
+                    help="shared run salt (hex); must match client. Defaults to the "
+                         "fixed demo salt in suite.conf so both Pis agree from a git pull.")
+    ap.add_argument("--host", default=None,
+                    help="address to bind (defaults to suite.conf server_addr)")
     ap.add_argument("--port", type=int, default=None)
     ap.add_argument("--events-file", default=None)
     ap.add_argument("--keylog", default=None)
     args = ap.parse_args()
 
-    suite = load_suite()
+    host = args.host or suite.server_addr
+    args.host = host
     port = args.port or suite.server_port
     run_salt = bytes.fromhex(args.salt)
     key, nonce_seed = derive_app_key(channel_binding(suite, run_salt))

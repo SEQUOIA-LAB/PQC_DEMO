@@ -83,9 +83,29 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main() -> int:
-    host, port = "127.0.0.1", 8080
-    httpd = ThreadingHTTPServer((host, port), Handler)
-    print(f"[dashboard] http://{host}:{port}  (Ctrl-C to stop)")
+    import argparse
+    import threading
+    import webbrowser
+
+    ap = argparse.ArgumentParser(description="PQC-TLS demo dashboard")
+    ap.add_argument("--host", default="127.0.0.1",
+                    help="bind address; use 0.0.0.0 to reach it from another box on the link")
+    ap.add_argument("--port", type=int, default=8080)
+    ap.add_argument("--open", action="store_true",
+                    help="open the dashboard in a browser once it is up")
+    ap.add_argument("--open-url", default=None,
+                    help="URL to open (defaults to http://127.0.0.1:<port>; set when bound to 0.0.0.0)")
+    a = ap.parse_args()
+
+    httpd = ThreadingHTTPServer((a.host, a.port), Handler)
+    shown_host = "127.0.0.1" if a.host == "0.0.0.0" else a.host
+    url = a.open_url or f"http://{shown_host}:{a.port}"
+    print(f"[dashboard] serving on http://{a.host}:{a.port}  -> open {url}  (Ctrl-C to stop)")
+
+    if a.open:
+        # Open after a short delay so the server is accepting first.
+        threading.Timer(1.0, lambda: webbrowser.open(url)).start()
+
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

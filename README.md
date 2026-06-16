@@ -56,11 +56,26 @@ docker run --rm -it --platform linux/arm64 -v "$PWD":/work -w /work pqc-pi-proxy
 #  inside:  crypto/setup-openssl.sh && python3 -m venv .venv && ...
 ```
 
-## Deploy to the Pis
+## Deploy to the Pis — one command each (demo day)
 
-Repo is canonical on the Mac → push to a git remote → on each Pi run
-`deploy/deploy.sh server` / `deploy/deploy.sh client`, apply the netplan files in
-`deploy/`, and run the roles over the direct ethernet link (10.0.0.1 ↔ 10.0.0.2).
+Repo is canonical on the Mac → push to a git remote. Apply the netplan files
+once (server Pi = 10.0.0.2, client Pi = 10.0.0.1), then on demo day:
+
+```bash
+# On the SERVER Pi (qianpi, 10.0.0.2):
+cd ~/PQC_DEMO && ./deploy/deploy.sh server
+#   pulls, builds if needed, starts the dashboard + opens the browser,
+#   and listens for the client's message.
+
+# On the CLIENT Pi (ben, 10.0.0.1):
+cd ~/PQC_DEMO && ./deploy/deploy.sh client
+#   pulls, builds if needed, waits for the server, connects, sends the message.
+```
+
+**Order doesn't matter** — the client waits for the server's port to open. The
+shared salt, default message, server address, and CA all come from the committed
+repo + `protocol/suite.conf`, so there are no manual arguments. Watch the message
+traverse every stage on the server Pi's dashboard.
 
 ## Pinned versions
 - OpenSSL **3.5.7** (latest 3.5.x LTS, verified 2026-06-15)

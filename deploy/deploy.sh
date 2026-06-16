@@ -1,14 +1,22 @@
 #!/usr/bin/env bash
-# deploy/deploy.sh — git-pull based deploy to a Pi (PROJECT_PLAN.md §11).
+# deploy/deploy.sh — one-command demo-day deploy + launch on a Pi.
 #
-# Run this ON the Pi (via Remote-SSH). The repo is canonical on the Mac and
-# pushed to a git remote; the Pi is a deploy target, never edited directly.
+# Run this ON the Pi. The repo is canonical on the Mac and pushed to a git
+# remote; the Pi is a deploy target, never edited directly (PROJECT_PLAN.md §11).
 #
-# Steps: pull, build pinned OpenSSL if needed, sync pinned Python deps into a
-# venv, regenerate certs if absent, then (optionally) start the role.
+# DEMO DAY (zero manual steps — salt, message, addresses, certs all come from
+# the committed repo + protocol/suite.conf):
+#   On the SERVER Pi (qianpi, 10.0.0.2):   cd ~/PQC_DEMO && ./deploy/deploy.sh server
+#       -> pulls, builds if needed, starts the dashboard + opens the browser,
+#          and listens for the client's message.
+#   On the CLIENT Pi (ben, 10.0.0.1):      cd ~/PQC_DEMO && ./deploy/deploy.sh client
+#       -> pulls, builds if needed, waits for the server, connects and sends the
+#          default message. Watch it traverse the stages on the server's dashboard.
 #
-# Usage (on the Pi):
-#   deploy/deploy.sh server     # or: client
+#   Order does not matter: the client waits for the server's port to open.
+#
+# Usage:
+#   deploy/deploy.sh server | client
 #   deploy/deploy.sh server --no-start   # prepare only, don't launch
 set -euo pipefail
 
@@ -63,36 +71,60 @@ fi
 echo "[deploy] syncing pinned Python deps"
 .venv/bin/pip install -q -r requirements.txt
 
-# 4) Certs. The CA is self-signed, so BOTH Pis must trust the SAME CA. We
-#    generate the CA + server cert ON THE SERVER PI only, then ship ca.crt to
-#    the client out-of-band (deploy/sync-ca.sh). The client must NOT generate
-#    its own CA — that would produce a different root and the handshake fails.
-if [ "$ROLE" = "server" ]; then
-  if [ ! -f certs/server.crt ]; then
-    echo "[deploy] generating ML-DSA-65 CA + server cert (server is the cert authority)"
+# 4) Certs. The demo CA + server cert are COMMITTED to the repo (throwaway demo
+#    certs), so a `git pull` gives BOTH Pis the same CA with zero coordination.
+#    If they are somehow missing (e.g. a fresh gen), the server regenerates and
+#    you must re-commit; the client just needs the committed ca.crt.
+if [ ! -f certs/ca.crt ] || [ ! -f certs/server.crt ]; then
+  if [ "$ROLE" = "server" ]; then
+    echo "[deploy] certs missing — generating ML-DSA-65 CA + server cert"
     .venv/bin/python -m app.gen_certs
-  fi
-  echo "[deploy] NEXT: copy certs/ca.crt to the CLIENT Pi, e.g. from the Mac:"
-  echo "  deploy/sync-ca.sh <server-pi-host> <client-pi-host>"
-else  # client
-  if [ ! -f certs/ca.crt ]; then
-    echo "[deploy] ERROR: certs/ca.crt missing on the client." >&2
-    echo "  The client must NOT generate its own CA. Copy the server's ca.crt here:" >&2
-    echo "  (from the Mac)  deploy/sync-ca.sh <server-pi-host> <client-pi-host>" >&2
-    echo "  (or manually)   scp <server-pi>:$REPO/certs/ca.crt $REPO/certs/ca.crt" >&2
+    echo "[deploy] NOTE: commit the regenerated certs/ so the client gets this CA."
+  else
+    echo "[deploy] ERROR: certs/ca.crt missing on the client and not in the repo." >&2
+    echo "  Pull a commit that includes certs/, or copy ca.crt from the server Pi." >&2
     exit 3
   fi
-  echo "[deploy] client using shipped ca.crt (CA fingerprint below):"
-  "$PQC_OPENSSL" x509 -in certs/ca.crt -noout -fingerprint -sha256 2>/dev/null | sed 's/^/  /' || true
 fi
+echo "[deploy] CA fingerprint (must match on both Pis):"
+"$PQC_OPENSSL" x509 -in certs/ca.crt -noout -fingerprint -sha256 2>/dev/null | sed 's/^/  /' || true
+
+# Read the demo-plane server address + port from suite.conf (single source).
+SRV_ADDR="$(.venv/bin/python -c 'from app.config import SUITE; print(SUITE.server_addr)')"
+SRV_PORT="$(.venv/bin/python -c 'from app.config import SUITE; print(SUITE.server_port)')"
+mkdir -p runs
 
 if [ "$NO_START" = "1" ]; then
-  echo "[deploy] prepared (--no-start). Start manually with: python -m $ROLE ..."
+  echo "[deploy] prepared (--no-start)."
+  echo "  server: .venv/bin/python -m server --host $SRV_ADDR --events-file runs/server.jsonl"
+  echo "  client: .venv/bin/python -m client --host $SRV_ADDR --events-file runs/client.jsonl"
   exit 0
 fi
 
-# 5) Launch the role on the demo-plane address from protocol/suite.conf.
-#    The salt must match the other Pi; pass the same --salt to both.
-echo "[deploy] starting role '$ROLE'. Provide --salt (shared) and role args:"
-echo "  server: .venv/bin/python -m server --salt <hex> --host 10.0.0.1 --keylog runs/server.keylog --events-file runs/server.jsonl"
-echo "  client: .venv/bin/python -m client --salt <hex> --message '...' --host 10.0.0.1 --events-file runs/client.jsonl"
+# 5) Demo-day launch. Salt + message default from suite.conf, so no args needed.
+if [ "$ROLE" = "server" ]; then
+  # Start the dashboard (reachable on the link) and open the browser, then run
+  # the TLS server role listening for the client's message. The dashboard keeps
+  # running; the server role processes one message per invocation.
+  DASH_PORT=8080
+  echo "[deploy] starting dashboard on 0.0.0.0:$DASH_PORT (open http://$SRV_ADDR:$DASH_PORT)"
+  .venv/bin/python -m dashboard.server --host 0.0.0.0 --port "$DASH_PORT" \
+      --open --open-url "http://$SRV_ADDR:$DASH_PORT" >runs/dashboard.log 2>&1 &
+  DASH_PID=$!
+  trap 'kill $DASH_PID 2>/dev/null || true' EXIT
+
+  echo "[deploy] server listening on $SRV_ADDR:$SRV_PORT for the client's message…"
+  echo "[deploy] (the client Pi: cd ~/PQC_DEMO && ./deploy/deploy.sh client)"
+  .venv/bin/python -m server --host "$SRV_ADDR" \
+      --keylog runs/server.keylog --events-file runs/server.jsonl
+
+  echo "[deploy] message received. Dashboard still running at http://$SRV_ADDR:$DASH_PORT"
+  echo "[deploy] press Ctrl-C to stop the dashboard."
+  wait "$DASH_PID"
+else
+  # Client: wait for the server to be up, then connect + send the default message.
+  echo "[deploy] client connecting to $SRV_ADDR:$SRV_PORT (waits for the server)…"
+  .venv/bin/python -m client --host "$SRV_ADDR" \
+      --events-file runs/client.jsonl
+  echo "[deploy] client done. Watch the dashboard on the server Pi to see the stages."
+fi

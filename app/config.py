@@ -30,6 +30,9 @@ class Suite:
     server_addr: str
     server_port: int
 
+    demo_salt: str
+    default_message: str
+
     ca_cert: Path
     server_cert: Path
     server_key: Path
@@ -62,6 +65,8 @@ def load_suite(path: Path | str = SUITE_CONF) -> Suite:
     demo = cp["demo"]
     net = cp["net"]
     certs = cp["certs"]
+    # [demo_run] is optional; fall back to safe defaults if a config predates it.
+    demo_run = cp["demo_run"] if cp.has_section("demo_run") else {}
 
     return Suite(
         tls_version=demo["tls_version"].strip(),
@@ -74,6 +79,8 @@ def load_suite(path: Path | str = SUITE_CONF) -> Suite:
         app_aead_tag_bytes=int(demo["app_aead_tag_bytes"]),
         server_addr=net["server_addr"].strip(),
         server_port=int(net["server_port"]),
+        demo_salt=str(demo_run.get("salt", "504f5143444d4f2d44454d4f2d76312d73616c74")).strip(),
+        default_message=str(demo_run.get("default_message", "hello from a post-quantum world")).strip(),
         ca_cert=REPO_ROOT / certs["ca_cert"].strip(),
         server_cert=REPO_ROOT / certs["server_cert"].strip(),
         server_key=REPO_ROOT / certs["server_key"].strip(),
