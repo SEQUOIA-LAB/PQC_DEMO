@@ -72,6 +72,21 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
   `deploy/sync-ca.sh qian@10.0.0.2 ben@10.0.0.1`. Both ends need the SAME
   `--salt` (use `deploy/two-pi-run.sh`).
 
+## Falcon / FN-DSA (optional, via OQS provider)
+- Falcon is NOT native to OpenSSL 3.5. `crypto/setup-oqs.sh` builds pinned
+  liboqs 0.15.0 + oqs-provider **0.11.0** (NOT 0.8.0 — older versions fail to
+  init against OpenSSL 3.5 with "error registering mldsa44"; 0.9.0+ disables its
+  own ML-KEM/ML-DSA when OpenSSL has them natively). Installs
+  `oqsprovider.dylib`/`.so` into `~/opt/openssl-3.5/lib/ossl-modules`.
+- `app/algorithms.py` auto-detects the provider (`oqs_falcon_algs()`) and adds
+  `falcon512`/`falcon1024` to the signature dropdown only when present.
+- The OQS provider is loaded **only for Falcon** operations, via `-provider
+  oqsprovider -provider default` + `OPENSSL_MODULES` (see `provider_args()` /
+  `provider_env()`). Native ML-DSA/ML-KEM paths never load it, so the default
+  demo is unaffected on machines without OQS.
+- Falcon-512 signature is ~659 B (vs ML-DSA-65 ~3313 B) — its compactness is a
+  good talking point. To use Falcon on a Pi, run `crypto/setup-oqs.sh` there too.
+
 ## Known constraints
 - The TLS **derived secret is not byte-extractable**; `capture/` shows a SHA-256
   fingerprint of the SSLKEYLOGFILE secret material (PROJECT_PLAN.md §13), and the

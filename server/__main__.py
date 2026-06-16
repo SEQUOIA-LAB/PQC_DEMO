@@ -58,7 +58,10 @@ def main() -> int:
     # Resolve the cert for the chosen signature algorithm (defaults to suite).
     sig_alg = args.sig_alg or suite.sig_alg
     from app.gen_certs import ensure_cert
+    from app.algorithms import provider_args, provider_env
     _ca, cert, srv_key = ensure_cert(sig_alg)
+    pargs = provider_args(sig_alg)   # OQS provider flags if Falcon, else []
+    penv = provider_env(sig_alg)
 
     emitter = EventEmitter("server", to_stdout=True,
                            file_path=args.events_file)
@@ -66,7 +69,8 @@ def main() -> int:
 
     group = args.group or suite.group
     proc = spawn_server(suite, host=args.host, port=port, keylog=keylog,
-                        cert=cert, key=srv_key, group=group)
+                        cert=cert, key=srv_key, group=group,
+                        provider_args=pargs, provider_env=penv)
     print(f"[server] listening on {args.host}:{port} group={group} "
           f"sig={sig_alg}", file=sys.stderr)
 

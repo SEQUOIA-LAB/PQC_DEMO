@@ -33,20 +33,20 @@ RE_CERTVERIFY = re.compile(r"CertificateVerify, Length=(\d+)")
 RE_NAMEDGROUP = re.compile(r"NamedGroup:\s*(\S+)")
 
 
-def _spawn_server(suite, host, port, keylog, cert, key, group):
+def _spawn_server(suite, host, port, keylog, cert, key, group, pargs, penv):
     cmd = [suite.openssl_bin, "s_server", "-accept", f"{host}:{port}",
            "-cert", str(cert), "-key", str(key),
-           "-groups", group, "-tls1_3", "-www", "-quiet"]
-    env = {**os.environ, **_OSSL_ENV, "SSLKEYLOGFILE": str(keylog)}
+           "-groups", group, "-tls1_3", "-www", "-quiet", *pargs]
+    env = {**os.environ, **_OSSL_ENV, **penv, "SSLKEYLOGFILE": str(keylog)}
     return subprocess.Popen(cmd, stdout=subprocess.DEVNULL,
                             stderr=subprocess.DEVNULL, env=env)
 
 
-def _client_trace(suite, host, port, keylog, ca, group) -> str:
+def _client_trace(suite, host, port, keylog, ca, group, pargs, penv) -> str:
     cmd = [suite.openssl_bin, "s_client", "-connect", f"{host}:{port}",
            "-groups", group, "-CAfile", str(ca),
-           "-tls1_3", "-trace"]
-    env = {**os.environ, **_OSSL_ENV, "SSLKEYLOGFILE": str(keylog)}
+           "-tls1_3", "-trace", *pargs]
+    env = {**os.environ, **_OSSL_ENV, **penv, "SSLKEYLOGFILE": str(keylog)}
     p = subprocess.run(cmd, input=b"Q\n", capture_output=True, env=env, timeout=15)
     return (p.stdout + p.stderr).decode("utf-8", "replace")
 
@@ -57,7 +57,10 @@ def capture(host: str, port: int, events_file: str | None,
     sig_alg = sig_alg or suite.sig_alg
     group = group or suite.group
     from app.gen_certs import ensure_cert
+    from app.algorithms import provider_args, provider_env
     ca, cert, key = ensure_cert(sig_alg)
+    pargs = provider_args(sig_alg)   # OQS provider flags if Falcon, else []
+    penv = provider_env(sig_alg)
 
     # Describe the key share according to the group kind (hybrid / pure / classical).
     from app.algorithms import get_group
@@ -82,10 +85,10 @@ def capture(host: str, port: int, events_file: str | None,
     tmp = Path(tempfile.mkdtemp(prefix="pqc-capture-"))
     keylog = tmp / "keylog.txt"
 
-    srv = _spawn_server(suite, host, port, keylog, cert, key, group)
+    srv = _spawn_server(suite, host, port, keylog, cert, key, group, pargs, penv)
     time.sleep(1.0)
     try:
-        trace = _client_trace(suite, host, port, keylog, ca, group)
+        trace = _client_trace(suite, host, port, keylog, ca, group, pargs, penv)
     finally:
         srv.terminate()
 

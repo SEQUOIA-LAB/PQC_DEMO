@@ -29,7 +29,9 @@ def _env(extra: dict[str, str] | None = None) -> dict[str, str]:
 def spawn_server(suite: Suite, *, host: str, port: int,
                  keylog: Path | None = None,
                  cert: Path | None = None, key: Path | None = None,
-                 group: str | None = None) -> subprocess.Popen:
+                 group: str | None = None,
+                 provider_args: list[str] | None = None,
+                 provider_env: dict | None = None) -> subprocess.Popen:
     """Spawn `s_server` in raw byte-relay mode (no -www): stdin->TLS, TLS->stdout.
 
     With -quiet and no -www, s_server pipes its stdin to the client and the
@@ -37,6 +39,7 @@ def spawn_server(suite: Suite, *, host: str, port: int,
 
     cert/key override the suite default so the operator can pick the certificate
     signature algorithm; group overrides the key-exchange group (app/algorithms.py).
+    provider_args/provider_env load the OQS provider when a Falcon cert is used.
     """
     cmd = [
         suite.openssl_bin, "s_server",
@@ -46,8 +49,11 @@ def spawn_server(suite: Suite, *, host: str, port: int,
         "-groups", group or suite.group,
         "-tls1_3",
         "-quiet",
+        *(provider_args or []),
     ]
-    extra = {"SSLKEYLOGFILE": str(keylog)} if keylog else None
+    extra = dict(provider_env or {})
+    if keylog:
+        extra["SSLKEYLOGFILE"] = str(keylog)
     return subprocess.Popen(
         cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
         stderr=subprocess.PIPE, env=_env(extra),
@@ -56,11 +62,14 @@ def spawn_server(suite: Suite, *, host: str, port: int,
 
 def spawn_client(suite: Suite, *, host: str, port: int,
                  keylog: Path | None = None,
-                 ca: Path | None = None, group: str | None = None) -> subprocess.Popen:
+                 ca: Path | None = None, group: str | None = None,
+                 provider_args: list[str] | None = None,
+                 provider_env: dict | None = None) -> subprocess.Popen:
     """Spawn `s_client` in raw byte-relay mode (-quiet): stdin->TLS, TLS->stdout.
 
     ca overrides the suite default CA so the client trusts the CA matching the
     server's chosen signature algorithm; group overrides the key-exchange group.
+    provider_args/provider_env load the OQS provider to verify a Falcon cert.
     """
     cmd = [
         suite.openssl_bin, "s_client",
@@ -69,8 +78,11 @@ def spawn_client(suite: Suite, *, host: str, port: int,
         "-CAfile", str(ca or suite.ca_cert),
         "-tls1_3",
         "-quiet",
+        *(provider_args or []),
     ]
-    extra = {"SSLKEYLOGFILE": str(keylog)} if keylog else None
+    extra = dict(provider_env or {})
+    if keylog:
+        extra["SSLKEYLOGFILE"] = str(keylog)
     return subprocess.Popen(
         cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
         stderr=subprocess.PIPE, env=_env(extra),

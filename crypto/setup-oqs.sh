@@ -24,8 +24,12 @@ BUILD_ROOT="${BUILD_ROOT:-/tmp/pqc-oqs-build}"
 JOBS="${JOBS:-$( (command -v nproc >/dev/null && nproc) || sysctl -n hw.ncpu || echo 4)}"
 
 # Pin versions for reproducibility (PROJECT_PLAN.md §12).
-LIBOQS_TAG="${LIBOQS_TAG:-0.12.0}"
-OQS_PROVIDER_TAG="${OQS_PROVIDER_TAG:-0.8.0}"
+# oqs-provider >= 0.9.0 is REQUIRED with OpenSSL 3.5: it disables its own
+# ML-KEM/ML-DSA registration when loaded against an OpenSSL that has them
+# natively (>= 3.5.0). Older 0.8.0 fails to init with "error registering mldsa44
+# with no hash". 0.11.0 is the latest stable, synchronized with liboqs 0.15.0.
+LIBOQS_TAG="${LIBOQS_TAG:-0.15.0}"
+OQS_PROVIDER_TAG="${OQS_PROVIDER_TAG:-0.11.0}"
 
 log() { printf '\033[1;34m[setup-oqs]\033[0m %s\n' "$*"; }
 die() { printf '\033[1;31m[setup-oqs] ERROR:\033[0m %s\n' "$*" >&2; exit 1; }

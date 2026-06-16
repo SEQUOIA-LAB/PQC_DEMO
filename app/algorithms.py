@@ -38,6 +38,8 @@ class SigAlg:
                        # "≈ Dilithium3". NOT a synonym: ML-DSA is the modified,
                        # standardized successor of CRYSTALS-Dilithium, so we show
                        # it as an approximate correspondence, never an equality.
+    provider: str = "" # extra OpenSSL provider this alg needs, e.g. "oqsprovider"
+                       # for Falcon. Empty = native (default provider only).
 
 
 # Order = dashboard dropdown order. ML-DSA-65 first = the demo default.
@@ -71,8 +73,7 @@ import subprocess
 def oqs_falcon_algs() -> list[SigAlg]:
     """Return Falcon SigAlg entries if the OQS provider is present, else []."""
     from app.config import openssl_bin
-    modules = os.environ.get("OPENSSL_MODULES", str(Path.home() / "opt" / "oqs"
-                                                    / "lib" / "ossl-modules"))
+    modules = oqs_modules_dir()  # ~/opt/openssl-3.5/lib/ossl-modules by default
     try:
         env = {**os.environ, "OPENSSL_MODULES": modules}
         p = subprocess.run(
@@ -89,13 +90,36 @@ def oqs_falcon_algs() -> list[SigAlg]:
         algs.append(SigAlg("falcon512", "Falcon-512 (FN-DSA, lattice, NIST L1)",
                            "FIPS 206 draft (via OQS)", "lattice", "genpkey",
                            "compact lattice signature; needs oqs-provider",
-                           legacy="Falcon-512"))
+                           legacy="Falcon-512", provider="oqsprovider"))
     if "falcon1024" in out:
         algs.append(SigAlg("falcon1024", "Falcon-1024 (FN-DSA, lattice, NIST L5)",
                            "FIPS 206 draft (via OQS)", "lattice", "genpkey",
                            "compact lattice signature, high security; needs oqs-provider",
-                           legacy="Falcon-1024"))
+                           legacy="Falcon-1024", provider="oqsprovider"))
     return algs
+
+
+def oqs_modules_dir() -> str:
+    """Path to the OpenSSL modules dir holding oqsprovider (env override allowed)."""
+    return os.environ.get(
+        "OPENSSL_MODULES",
+        str(Path.home() / "opt" / "openssl-3.5" / "lib" / "ossl-modules"))
+
+
+def provider_env(sig_id: str | None = None, group: str | None = None) -> dict:
+    """Extra environment (OPENSSL_MODULES) needed to run sig_id/group, if any."""
+    needs = bool(sig_id and get(sig_id).provider) if sig_id else False
+    return {"OPENSSL_MODULES": oqs_modules_dir()} if needs else {}
+
+
+def provider_args(sig_id: str | None = None, group: str | None = None) -> list[str]:
+    """Extra OpenSSL CLI args (-provider ...) needed to run sig_id/group, if any.
+
+    When an algorithm needs oqsprovider we must load BOTH it and the default
+    provider (default still supplies X25519, AES, the native ML-KEM group, etc.).
+    """
+    needs = bool(sig_id and get(sig_id).provider) if sig_id else False
+    return ["-provider", "oqsprovider", "-provider", "default"] if needs else []
 
 
 def active_sig_algs() -> list[SigAlg]:

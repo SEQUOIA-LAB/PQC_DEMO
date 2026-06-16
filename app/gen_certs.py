@@ -34,43 +34,46 @@ _SAN_EXT = (
 )
 
 
-def _run(cmd: list[str]) -> None:
+def _run(cmd: list[str], env: dict | None = None) -> None:
     print("    $", " ".join(cmd))
-    subprocess.run(cmd, check=True, env=_OSSL_ENV)
+    subprocess.run(cmd, check=True, env=env or _OSSL_ENV)
 
 
-def _genkey(ossl: str, sig_id: str, out: Path) -> None:
+def _genkey(ossl: str, sig_id: str, out: Path, pargs: list[str], env: dict) -> None:
     """Create a private key for the signature algorithm (form varies by kind)."""
     spec = get(sig_id)
     if spec.keygen == "ec":          # classical ECDSA P-256
-        _run([ossl, "ecparam", "-name", "prime256v1", "-genkey", "-out", str(out)])
+        _run([ossl, "ecparam", "-name", "prime256v1", "-genkey", "-out", str(out)], env)
     elif spec.keygen == "ed25519":   # classical Ed25519
-        _run([ossl, "genpkey", "-algorithm", "ED25519", "-out", str(out)])
+        _run([ossl, "genpkey", "-algorithm", "ED25519", "-out", str(out)], env)
     else:                            # PQC: the id IS the -algorithm name
-        _run([ossl, "genpkey", "-algorithm", spec.id, "-out", str(out)])
+        _run([ossl, "genpkey", "-algorithm", spec.id, *pargs, "-out", str(out)], env)
 
 
 def _generate_pair(ossl: str, sig_id: str, ca_key: Path, ca_crt: Path,
                    srv_key: Path, srv_crt: Path, out_dir: Path) -> None:
     """Generate a self-signed CA + a server cert, both using sig_id."""
+    from app.algorithms import provider_args, provider_env
+    pargs = provider_args(sig_id)            # OQS provider flags if Falcon, else []
+    env = {**_OSSL_ENV, **provider_env(sig_id)}
     print(f"[gen_certs] generating {sig_id} CA + server cert -> {out_dir}")
     # CA (self-signed). For `req -x509`, CA extensions go via -addext.
-    _genkey(ossl, sig_id, ca_key)
-    _run([ossl, "req", "-x509", "-new", "-key", str(ca_key),
+    _genkey(ossl, sig_id, ca_key, pargs, env)
+    _run([ossl, "req", "-x509", "-new", "-key", str(ca_key), *pargs,
           "-subj", f"/CN=PQC-DEMO {sig_id} Root CA/O=UC Merced EECS",
           "-addext", "basicConstraints=critical,CA:TRUE",
           "-addext", "keyUsage=critical,keyCertSign,cRLSign",
-          "-days", "365", "-out", str(ca_crt)])
+          "-days", "365", "-out", str(ca_crt)], env)
     # Server cert signed by that CA.
     srv_csr = out_dir / "server.csr"
-    _genkey(ossl, sig_id, srv_key)
-    _run([ossl, "req", "-new", "-key", str(srv_key),
-          "-subj", "/CN=pqc-demo-server/O=UC Merced EECS", "-out", str(srv_csr)])
+    _genkey(ossl, sig_id, srv_key, pargs, env)
+    _run([ossl, "req", "-new", "-key", str(srv_key), *pargs,
+          "-subj", "/CN=pqc-demo-server/O=UC Merced EECS", "-out", str(srv_csr)], env)
     ext = out_dir / "server.ext"
     ext.write_text(_SAN_EXT)
-    _run([ossl, "x509", "-req", "-in", str(srv_csr),
+    _run([ossl, "x509", "-req", "-in", str(srv_csr), *pargs,
           "-CA", str(ca_crt), "-CAkey", str(ca_key), "-CAcreateserial",
-          "-days", "365", "-extfile", str(ext), "-out", str(srv_crt)])
+          "-days", "365", "-extfile", str(ext), "-out", str(srv_crt)], env)
 
 
 def generate_default(force: bool = False) -> None:

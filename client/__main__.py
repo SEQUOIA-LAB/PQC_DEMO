@@ -84,10 +84,14 @@ def main() -> int:
     # Use the CA matching the server's chosen signature algorithm.
     sig_alg = args.sig_alg or suite.sig_alg
     from app.gen_certs import ensure_cert
+    from app.algorithms import provider_args, provider_env
     ca, _crt, _key = ensure_cert(sig_alg)
+    pargs = provider_args(sig_alg)
+    penv = provider_env(sig_alg)
 
     group = args.group or suite.group
-    proc = spawn_client(suite, host=args.host, port=port, keylog=keylog, ca=ca, group=group)
+    proc = spawn_client(suite, host=args.host, port=port, keylog=keylog, ca=ca,
+                        group=group, provider_args=pargs, provider_env=penv)
     print(f"[client] connecting to {args.host}:{port} group={group} "
           f"sig={sig_alg}", file=sys.stderr)
     # Let the handshake complete (it is milliseconds; we wait conservatively).
