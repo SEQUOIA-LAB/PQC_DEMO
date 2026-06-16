@@ -3,122 +3,181 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>PQC-TLS Demo Dashboard</title>
+<title>Post-Quantum TLS</title>
 <style>
-  :root { --bg:#0b0f17; --panel:#131a26; --line:#243044; --fg:#e6edf3;
-          --accent:#5eead4; --client:#7dd3fc; --server:#fca5a5; --muted:#8b98a9; }
-  * { box-sizing: border-box; }
-  body { margin:0; font:14px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;
-         background:var(--bg); color:var(--fg); }
-  header { padding:16px 24px; border-bottom:1px solid var(--line);
-           display:flex; align-items:baseline; gap:16px; flex-wrap:wrap; }
-  header h1 { font-size:18px; margin:0; }
-  header .suite { color:var(--muted); font-size:12px; }
-  header .suite b { color:var(--accent); }
-  main { display:grid; grid-template-columns: 1fr 1fr; gap:16px; padding:24px; }
-  .panel { background:var(--panel); border:1px solid var(--line);
-           border-radius:10px; padding:16px; }
-  .panel h2 { margin:0 0 12px; font-size:13px; text-transform:uppercase;
-              letter-spacing:.08em; color:var(--muted); }
+  :root {
+    --bg:#0e1116; --panel:#171b22; --panel-2:#1c212b; --line:#2a3038;
+    --fg:#e8eaed; --fg-dim:#9aa3ad; --muted:#6b7480;
+    --accent:#6ea8fe; --accent-dim:#2b3b57;
+    --ok:#56d399; --client:#6ea8fe; --server:#e0a458;
+    --mono:"SF Mono",ui-monospace,"JetBrains Mono",Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; font:15px/1.55 var(--sans); background:var(--bg); color:var(--fg);
+         -webkit-font-smoothing:antialiased; }
+
+  header { padding:20px 32px; border-bottom:1px solid var(--line);
+           display:flex; align-items:center; justify-content:space-between; gap:24px; flex-wrap:wrap; }
+  header .brand { display:flex; align-items:baseline; gap:14px; }
+  header h1 { font-size:17px; font-weight:600; margin:0; letter-spacing:-.01em; }
+  header .tls { font-size:12px; color:var(--muted); font-family:var(--mono); }
+  header .active-suite { font-size:12.5px; color:var(--fg-dim); font-family:var(--mono); }
+  header .active-suite b { color:var(--accent); font-weight:600; }
+
+  main { max-width:1180px; margin:0 auto; padding:28px 32px 48px;
+         display:grid; grid-template-columns:1fr 1fr; gap:20px; }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:20px 22px; }
   .full { grid-column:1 / -1; }
-  input[type=text] { width:100%; padding:10px; background:#0b1018;
-    border:1px solid var(--line); color:var(--fg); border-radius:6px; font:inherit; }
-  button { padding:10px 16px; background:var(--accent); color:#06231f;
-    border:none; border-radius:6px; font:inherit; font-weight:700; cursor:pointer; }
-  button.ghost { background:transparent; color:var(--fg); border:1px solid var(--line); }
-  select { padding:8px 10px; background:#0b1018; color:var(--fg);
-    border:1px solid var(--line); border-radius:6px; font:inherit; }
-  .row { display:flex; gap:10px; align-items:center; margin-top:10px; flex-wrap:wrap; }
-  .stage { border:1px solid var(--line); border-radius:8px; padding:10px 12px;
-           margin:8px 0; opacity:.35; transition:opacity .2s, border-color .2s; }
-  .stage.active { opacity:1; border-color:var(--accent); box-shadow:0 0 0 1px var(--accent) inset; }
-  .stage .head { display:flex; justify-content:space-between; gap:8px; }
-  .stage .tag { font-size:11px; padding:1px 7px; border-radius:10px; }
-  .tag.client { background:#0b2a3a; color:var(--client); }
-  .tag.server { background:#3a1414; color:var(--server); }
-  .stage .hr { color:var(--accent); word-break:break-all; margin-top:4px; }
-  .stage .meta { color:var(--muted); font-size:12px; margin-top:2px; }
-  .bytes { color:var(--muted); font-size:11px; word-break:break-all;
-           max-height:0; overflow:hidden; transition:max-height .2s; }
-  .stage.active .bytes { max-height:140px; overflow:auto; margin-top:6px; }
-  .metrics td { padding:4px 14px 4px 0; }
-  .muted { color:var(--muted); }
-  p.sub { font-size:12px; margin:0 0 12px; }
-  .stage .stagenum { color:var(--accent); font-weight:700; margin-right:6px; }
-  .stage .algo { display:inline-block; font-size:11px; padding:1px 7px;
-    border-radius:10px; background:#10261f; color:var(--accent); margin-left:6px; }
+  .panel > h2 { margin:0 0 4px; font-size:14px; font-weight:600; letter-spacing:-.01em; }
+  .panel > .desc { margin:0 0 16px; font-size:12.5px; color:var(--fg-dim); line-height:1.5; }
+
+  /* Controls */
+  .controls { display:flex; flex-direction:column; gap:14px; }
+  .field { display:flex; flex-direction:column; gap:6px; }
+  .field > label { font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); }
+  .send-row { display:flex; gap:10px; align-items:stretch; }
+  input[type=text] { flex:1; padding:11px 13px; background:var(--bg); border:1px solid var(--line);
+    color:var(--fg); border-radius:8px; font:14px var(--sans); }
+  input[type=text]:focus, select:focus { outline:none; border-color:var(--accent); }
+  select { padding:9px 11px; background:var(--bg); color:var(--fg);
+    border:1px solid var(--line); border-radius:8px; font:13px var(--mono); width:100%; }
+  .selects { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+  .note { font-size:11.5px; color:var(--muted); min-height:1em; }
+  button { padding:11px 18px; background:var(--accent); color:#0b1220; border:none;
+    border-radius:8px; font:600 14px var(--sans); cursor:pointer; white-space:nowrap; }
+  button:hover { filter:brightness(1.08); }
+  button.ghost { background:transparent; color:var(--fg-dim); border:1px solid var(--line); font-weight:500; }
+  button.ghost:hover { color:var(--fg); border-color:var(--accent-dim); }
+  #status { font-size:12.5px; color:var(--fg-dim); margin-top:10px; min-height:1em; }
+  #status.ok { color:var(--ok); }
+  #status.err { color:var(--server); }
+
+  /* Stage cards */
+  .stage { border:1px solid var(--line); border-radius:9px; padding:12px 14px; margin:9px 0;
+    opacity:.5; transition:opacity .18s, border-color .18s, background .18s; background:var(--panel-2); }
+  .stage.active { opacity:1; border-color:var(--accent-dim); background:#1a2230; }
+  .stage .head { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+  .stage .title { display:flex; align-items:center; gap:9px; font-size:13px; font-weight:600; }
+  .stage .num { display:inline-flex; align-items:center; justify-content:center;
+    width:20px; height:20px; border-radius:6px; background:var(--accent-dim); color:var(--accent);
+    font:600 11px var(--mono); flex:none; }
+  .stage .stagename { color:var(--fg); }
+  .stage .artifact { color:var(--fg-dim); font-weight:400; font-family:var(--mono); font-size:12px; }
+  .stage .tag { font-size:10.5px; padding:2px 8px; border-radius:20px; font-family:var(--mono);
+    border:1px solid var(--line); }
+  .tag.client { color:var(--client); border-color:#26405e; }
+  .tag.server { color:var(--server); border-color:#5a4427; }
+  .stage .algo { font-family:var(--mono); font-size:11px; color:var(--accent); }
+  .stage .hr { margin-top:7px; font-size:13px; color:var(--fg); word-break:break-word; }
+  .stage .meta { margin-top:3px; font-size:11.5px; color:var(--muted); font-family:var(--mono); }
+  .stage .bytes { font-family:var(--mono); font-size:10.5px; color:var(--muted); word-break:break-all;
+    max-height:0; overflow:hidden; transition:max-height .18s; }
+  .stage.active .bytes { max-height:120px; overflow:auto; margin-top:8px;
+    padding-top:8px; border-top:1px solid var(--line); }
+  .empty { color:var(--muted); font-size:13px; padding:6px 2px; }
+
+  /* Replay */
+  .replay-row { display:flex; gap:9px; align-items:center; flex-wrap:wrap; }
+  #replay-status { font-size:12px; color:var(--muted); font-family:var(--mono); margin-left:auto; }
+
+  /* Metrics */
+  table.tbl { border-collapse:collapse; width:100%; font-size:13px; }
+  table.tbl td, table.tbl th { padding:6px 16px 6px 0; text-align:left; vertical-align:top; }
+  table.tbl th { font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); font-weight:500; }
+  table.tbl td.k { color:var(--muted); }
+  table.tbl .val { font-family:var(--mono); }
+  .metrics-empty { color:var(--muted); font-size:13px; }
+  .subhead { margin:22px 0 10px; font-size:12px; font-weight:600; text-transform:uppercase;
+    letter-spacing:.06em; color:var(--fg-dim); }
+
+  @media (max-width:860px){ main{ grid-template-columns:1fr; } .selects{ grid-template-columns:1fr; } }
 </style>
 </head>
 <body>
 <header>
-  <h1>PQC-TLS Demo</h1>
-  <span class="suite" id="suite">group <b>X25519MLKEM768</b> · sig <b>ML-DSA-65</b> · TLS 1.3 · app AEAD <b>AES-256-GCM</b></span>
+  <div class="brand">
+    <h1>Post-Quantum TLS</h1>
+    <span class="tls">TLS 1.3</span>
+  </div>
+  <span class="active-suite" id="active-suite">Select a key exchange and signature, then send a message.</span>
 </header>
 
 <main>
   <section class="panel full">
-    <h2>Operator message</h2>
-    <div class="row">
-      <input id="msg" type="text" value="hello quantum world"
-             placeholder="type a message to send over the PQC-TLS channel" />
-      <button id="send">Send through channel</button>
-      <span id="status" class="muted"></span>
-    </div>
-    <div class="row">
-      <label class="muted" for="group">Key exchange:</label>
-      <select id="group"></select>
-      <label class="muted" for="sigalg" style="margin-left:12px">Certificate signature:</label>
-      <select id="sigalg"></select>
-    </div>
-    <div class="row">
-      <span id="group-note" class="muted"></span>
-      <span id="sigalg-note" class="muted"></span>
+    <div class="controls">
+      <div class="field">
+        <label for="msg">Message</label>
+        <div class="send-row">
+          <input id="msg" type="text" value="hello quantum world"
+                 placeholder="Enter a message to send across the channel" />
+          <button id="send">Send</button>
+        </div>
+      </div>
+      <div class="selects">
+        <div class="field">
+          <label for="group">Key exchange</label>
+          <select id="group"></select>
+          <span id="group-note" class="note"></span>
+        </div>
+        <div class="field">
+          <label for="sigalg">Certificate signature</label>
+          <select id="sigalg"></select>
+          <span id="sigalg-note" class="note"></span>
+        </div>
+      </div>
+      <div id="status"></div>
     </div>
   </section>
 
   <section class="panel">
-    <h2>① PQC handshake — key establishment &amp; authentication</h2>
-    <p class="muted sub">Real artifacts captured from a live TLS 1.3 handshake:
-       hybrid ML-KEM-768 key shares, the ML-DSA-65 transcript signature, and the
-       derived-secret fingerprint. The handshake itself runs in milliseconds — these
-       are recorded and replayed (capture-then-replay, never faked).</p>
+    <h2>1 · Handshake</h2>
+    <p class="desc">Key establishment and server authentication, captured from a live
+       TLS 1.3 handshake — the key shares, certificate signature, and derived-secret
+       fingerprint.</p>
     <div id="handshake-stages"></div>
   </section>
 
   <section class="panel">
-    <h2>② Operator message — through the established channel</h2>
-    <p class="muted sub">Your plaintext, AEAD-sealed (AES-256-GCM) into ciphertext +
-       tag, framed, transmitted, then decrypted and tag-verified on the far side.
-       This layer is our own code, so every byte of the transformation is shown.</p>
+    <h2>2 · Message</h2>
+    <p class="desc">The message authenticated and encrypted with AES-256-GCM, then
+       transmitted and verified on the receiving end.</p>
     <div id="message-stages"></div>
   </section>
 
   <section class="panel full">
-    <h2>Replay controls</h2>
-    <div class="row">
-      <button id="replay" class="ghost">▶ Replay step-by-step</button>
-      <button id="step" class="ghost">⏭ Step</button>
-      <button id="reset" class="ghost">⟲ Reset</button>
-      <span id="replay-status" class="muted"></span>
+    <h2>Replay</h2>
+    <p class="desc">Step through the captured stages at readable speed.</p>
+    <div class="replay-row">
+      <button id="replay" class="ghost">Play</button>
+      <button id="step" class="ghost">Step</button>
+      <button id="reset" class="ghost">Reset</button>
+      <span id="replay-status"></span>
     </div>
   </section>
 
   <section class="panel full">
-    <h2>Live metrics (PQC vs classical — measured on the Pi, Phase 4)</h2>
-    <table class="metrics"><tbody id="metrics">
-      <tr><td class="muted">No metrics yet. Run the metrics harness on the Pi (Phase 4).</td></tr>
+    <h2>Performance</h2>
+    <p class="desc">Post-quantum versus classical, measured on this host.</p>
+    <table class="tbl"><tbody id="metrics">
+      <tr><td class="metrics-empty">No measurements yet. Run the benchmark to populate this section.</td></tr>
     </tbody></table>
-    <h2 style="margin-top:18px">Primitive speed — by algorithm &amp; security level</h2>
-    <div id="primitives" class="muted">No primitive benchmarks yet.</div>
+    <div class="subhead">Primitive throughput by security level</div>
+    <div id="primitives" class="metrics-empty">No primitive benchmarks yet.</div>
   </section>
 </main>
 
 <script>
 const STAGE_ORDER = ["keygen","encapsulate","derive_secret","sign_transcript",
   "verify_signature","aead_encrypt","transmit","aead_decrypt","verify"];
-// Which stages belong to the handshake phase vs the message phase.
 const HANDSHAKE_STAGES = new Set(["keygen","encapsulate","derive_secret",
   "sign_transcript","verify_signature"]);
+// Readable stage names for the cards (the raw event "stage" is a snake-case id).
+const STAGE_LABELS = {
+  keygen:"Key generation", encapsulate:"Encapsulation", derive_secret:"Shared secret",
+  sign_transcript:"Transcript signature", verify_signature:"Signature verification",
+  aead_encrypt:"Encrypt", transmit:"Transmit", aead_decrypt:"Decrypt", verify:"Verify",
+};
 
 let events = [];
 let replayIdx = 0;
@@ -127,16 +186,22 @@ let replayTimer = null;
 function stageCard(ev, n) {
   const el = document.createElement("div");
   el.className = "stage";
-  el.dataset.idx = ev._idx;   // global ordinal in the ordered flow (replay uses this)
+  el.dataset.idx = ev._idx;
   const algo = ev.algorithm ? `<span class="algo">${escapeHtml(ev.algorithm)}</span>` : "";
+  const name = STAGE_LABELS[ev.stage] || ev.stage;
   el.innerHTML = `
     <div class="head">
-      <strong><span class="stagenum">${n}</span>${ev.stage} · ${ev.artifact_type}${algo}</strong>
+      <span class="title">
+        <span class="num">${n}</span>
+        <span class="stagename">${escapeHtml(name)}</span>
+        <span class="artifact">${escapeHtml(ev.artifact_type)}</span>
+        ${algo}
+      </span>
       <span class="tag ${ev.side}">${ev.side}</span>
     </div>
     <div class="hr">${escapeHtml(ev.human_readable ?? "")}</div>
     <div class="meta">${ev.size_bytes} bytes${ev.note ? " · " + escapeHtml(ev.note) : ""}</div>
-    <div class="bytes">${ev.artifact_bytes_b64 ? "b64: " + ev.artifact_bytes_b64 : "(no extractable bytes — see note)"}</div>`;
+    <div class="bytes">${ev.artifact_bytes_b64 ? escapeHtml(ev.artifact_bytes_b64) : "no extractable bytes"}</div>`;
   return el;
 }
 
@@ -146,12 +211,12 @@ function render() {
   h.innerHTML = ""; m.innerHTML = "";
   let hn = 0, mn = 0;
   events.forEach((ev, i) => {
-    ev._idx = i;  // global ordinal for replay stepping
+    ev._idx = i;
     if (HANDSHAKE_STAGES.has(ev.stage)) h.appendChild(stageCard(ev, ++hn));
     else m.appendChild(stageCard(ev, ++mn));
   });
-  if (hn === 0) h.innerHTML = '<p class="muted">No handshake captured yet — press “Send through channel”.</p>';
-  if (mn === 0) m.innerHTML = '<p class="muted">No message yet — press “Send through channel”.</p>';
+  if (hn === 0) h.innerHTML = '<p class="empty">Send a message to capture a handshake.</p>';
+  if (mn === 0) m.innerHTML = '<p class="empty">Send a message to see it traverse the channel.</p>';
 }
 
 function setActiveUpTo(idx) {
@@ -160,9 +225,6 @@ function setActiveUpTo(idx) {
   });
 }
 
-// Order by the canonical protocol stage flow, then by seq within a stage.
-// (Handshake events and message events have independent seq counters, so a plain
-//  seq sort would interleave them; stage order is the true narrative order.)
 function orderEvents(evs) {
   const rank = s => { const i = STAGE_ORDER.indexOf(s); return i < 0 ? 99 : i; };
   return evs.slice().sort((a,b) =>
@@ -172,12 +234,9 @@ function orderEvents(evs) {
 async function loadEvents() {
   events = orderEvents(await (await fetch("/api/events")).json());
   render();
-  setActiveUpTo(1e9); // all on by default
+  setActiveUpTo(1e9);
 }
 
-// Populate a <select> from a registry list, adding the legacy-name hint to each
-// option label so a general audience sees the familiar word alongside the FIPS
-// name (the demo asserts FIPS names; the legacy hint is approximate, "≈").
 function fillSelect(selId, noteId, items, defaultId) {
   const sel = document.getElementById(selId);
   const byId = {};
@@ -186,17 +245,17 @@ function fillSelect(selId, noteId, items, defaultId) {
     byId[a.id] = a;
     const opt = document.createElement("option");
     opt.value = a.id;
-    const legacy = a.legacy ? `  [${a.legacy}]` : "";
-    opt.textContent = a.label + legacy + (a.id === defaultId ? "  (default)" : "");
+    const legacy = a.legacy ? `  ·  ${a.legacy}` : "";
+    opt.textContent = a.label + legacy;
     if (a.id === defaultId) opt.selected = true;
     sel.appendChild(opt);
   }
   const showNote = () => {
     const a = byId[sel.value];
-    document.getElementById(noteId).textContent =
-      a ? `${a.fips} · ${a.note}` + (a.legacy ? ` · informally ${a.legacy}` : "") : "";
+    document.getElementById(noteId).textContent = a ? `${a.fips} — ${a.note}` : "";
   };
   sel.onchange = showNote; showNote();
+  return byId;
 }
 
 async function loadAlgorithms() {
@@ -205,36 +264,45 @@ async function loadAlgorithms() {
   fillSelect("sigalg", "sigalg-note", data.signature_algorithms, data.default);
 }
 
+function setActiveSuite(group, sig) {
+  document.getElementById("active-suite").innerHTML =
+    `<b>${escapeHtml(group)}</b> &nbsp;·&nbsp; <b>${escapeHtml(sig)}</b>`;
+}
+
 document.getElementById("send").onclick = async () => {
   const message = document.getElementById("msg").value;
   const sig_alg = document.getElementById("sigalg").value;
   const group = document.getElementById("group").value;
   const status = document.getElementById("status");
-  status.textContent = `capturing a real handshake (${group} + ${sig_alg}) + sending…`;
+  status.className = ""; status.textContent = `Negotiating ${group} with ${sig_alg}…`;
   const r = await fetch("/api/run", {method:"POST",
     headers:{"Content-Type":"application/json"}, body:JSON.stringify({message, sig_alg, group})});
   const data = await r.json();
   events = orderEvents(data.events || []);
   render(); setActiveUpTo(1e9);
-  status.textContent = data.returncode === 0
-    ? `✓ delivered over ${data.group} + ${data.sig_alg}`
-    : "✗ failed (see server log — some pure-PQC/classical group combos may differ)";
+  if (data.returncode === 0) {
+    setActiveSuite(data.group, data.sig_alg);
+    status.className = "ok";
+    status.textContent = `Delivered over ${data.group} + ${data.sig_alg}.`;
+  } else {
+    status.className = "err";
+    status.textContent = "The handshake did not complete. Check the server log.";
+  }
 };
 
 function replayStep() {
   if (replayIdx >= events.length) return false;
   replayIdx++;
-  setActiveUpTo(replayIdx - 1);   // ordinal index, not seq
+  setActiveUpTo(replayIdx - 1);
   const ev = events[replayIdx-1];
+  const name = STAGE_LABELS[ev.stage] || ev.stage;
   document.getElementById("replay-status").textContent =
-    `step ${replayIdx}/${events.length}: ${ev.stage} · ${ev.artifact_type}`;
+    `${replayIdx} / ${events.length} — ${name}`;
   return true;
 }
 document.getElementById("replay").onclick = () => {
   resetReplay();
-  replayTimer = setInterval(() => {
-    if (!replayStep()) clearInterval(replayTimer);
-  }, 1100);
+  replayTimer = setInterval(() => { if (!replayStep()) clearInterval(replayTimer); }, 1100);
 };
 document.getElementById("step").onclick = replayStep;
 document.getElementById("reset").onclick = resetReplay;
@@ -242,29 +310,26 @@ function resetReplay() {
   if (replayTimer) clearInterval(replayTimer);
   replayIdx = 0;
   document.querySelectorAll(".stage").forEach(el => el.classList.remove("active"));
-  document.getElementById("replay-status").textContent = "reset";
+  document.getElementById("replay-status").textContent = "";
 }
 
 async function loadMetrics() {
   try {
     const m = await (await fetch("/api/metrics")).json();
     const tb = document.getElementById("metrics");
-    if (!m || m.note && !m.pqc) {  // no metrics.json yet
-      return;
-    }
+    if (!m || (m.note && !m.pqc)) return;
     const p = m.pqc, c = m.classical, cmp = m.comparison || {};
     const fmt = (v, suffix="") => v == null ? "—" : v + suffix;
     tb.innerHTML = `
-      <tr><td class="muted">measured on</td><td colspan="2">${escapeHtml(m.measured_on||"")} · ${escapeHtml(m.openssl||"")}</td></tr>
-      <tr><td></td><td><b style="color:var(--server)">PQC</b><br><span class="muted">${escapeHtml(p.group)} + ${escapeHtml(p.cert_sig)}</span></td>
-                    <td><b style="color:var(--client)">classical</b><br><span class="muted">${escapeHtml(c.group)} + ${escapeHtml(c.cert_sig)}</span></td></tr>
-      <tr><td class="muted">handshake mean</td><td>${fmt(p.handshake_mean_ms," ms")}</td><td>${fmt(c.handshake_mean_ms," ms")}</td></tr>
-      <tr><td class="muted">handshake p95</td><td>${fmt(p.handshake_p95_ms," ms")}</td><td>${fmt(c.handshake_p95_ms," ms")}</td></tr>
-      <tr><td class="muted">connections/sec</td><td>${fmt(p.conns_per_sec)}</td><td>${fmt(c.conns_per_sec)}</td></tr>
-      <tr><td class="muted">PQC overhead</td><td colspan="2" style="color:var(--accent)">${fmt(cmp.handshake_overhead_ms," ms")} (${fmt(cmp.handshake_overhead_pct,"%")})</td></tr>`;
+      <tr><th></th><th>Post-quantum</th><th>Classical</th></tr>
+      <tr><td class="k">Suite</td>
+          <td class="val">${escapeHtml(p.group)} + ${escapeHtml(p.cert_sig)}</td>
+          <td class="val">${escapeHtml(c.group)} + ${escapeHtml(c.cert_sig)}</td></tr>
+      <tr><td class="k">Handshake (mean)</td><td class="val">${fmt(p.handshake_mean_ms," ms")}</td><td class="val">${fmt(c.handshake_mean_ms," ms")}</td></tr>
+      <tr><td class="k">Handshake (p95)</td><td class="val">${fmt(p.handshake_p95_ms," ms")}</td><td class="val">${fmt(c.handshake_p95_ms," ms")}</td></tr>
+      <tr><td class="k">Connections / sec</td><td class="val">${fmt(p.conns_per_sec)}</td><td class="val">${fmt(c.conns_per_sec)}</td></tr>
+      <tr><td class="k">Post-quantum overhead</td><td class="val" colspan="2">${fmt(cmp.handshake_overhead_ms," ms")} (${fmt(cmp.handshake_overhead_pct,"%")})</td></tr>`;
 
-    // Primitive speed: parse the "Doing <alg> <op> ops ... : <n> ... in <t>s" lines
-    // into ops/sec by algorithm, so the security-level progression is visible.
     const prim = m.primitives || {};
     const parseRows = rows => (rows||[]).map(ln => {
       const mm = ln.match(/Doing (\S+) (\w+) ops .*: (\d+) .* in ([\d.]+)s/);
@@ -274,17 +339,15 @@ async function loadMetrics() {
     }).filter(Boolean);
     const renderPrim = (title, rows) => {
       if (!rows.length) return "";
-      let html = `<div style="margin-top:6px"><b>${title}</b><table class="metrics"><tbody>`;
+      let html = `<table class="tbl" style="margin-bottom:14px"><tr><th>${escapeHtml(title)}</th><th>Operation</th><th>Throughput</th></tr>`;
       for (const r of rows)
-        html += `<tr><td class="muted">${escapeHtml(r.alg)}</td><td>${escapeHtml(r.op)}</td><td>${r.ops.toLocaleString()} ops/s</td></tr>`;
-      return html + "</tbody></table></div>";
+        html += `<tr><td class="val">${escapeHtml(r.alg)}</td><td class="k">${escapeHtml(r.op)}</td><td class="val">${r.ops.toLocaleString()} ops/s</td></tr>`;
+      return html + "</table>";
     };
     const pe = document.getElementById("primitives");
-    const kemHtml = renderPrim("KEM (key exchange)", parseRows(prim.kem));
-    const sigHtml = renderPrim("Signature", parseRows(prim.signature));
-    pe.innerHTML = (kemHtml || sigHtml)
-      ? kemHtml + sigHtml
-      : '<span class="muted">No primitive benchmarks yet (run metrics on the Pi).</span>';
+    const html = renderPrim("Key exchange", parseRows(prim.kem)) +
+                 renderPrim("Signature", parseRows(prim.signature));
+    pe.innerHTML = html || '<span class="metrics-empty">No primitive benchmarks yet.</span>';
   } catch (e) {}
 }
 
