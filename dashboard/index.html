@@ -41,6 +41,10 @@
   .stage.active .bytes { max-height:140px; overflow:auto; margin-top:6px; }
   .metrics td { padding:4px 14px 4px 0; }
   .muted { color:var(--muted); }
+  p.sub { font-size:12px; margin:0 0 12px; }
+  .stage .stagenum { color:var(--accent); font-weight:700; margin-right:6px; }
+  .stage .algo { display:inline-block; font-size:11px; padding:1px 7px;
+    border-radius:10px; background:#10261f; color:var(--accent); margin-left:6px; }
 </style>
 </head>
 <body>
@@ -61,13 +65,20 @@
   </section>
 
   <section class="panel">
-    <h2>Stepped view — client (sender)</h2>
-    <div id="client-stages"></div>
+    <h2>① PQC handshake — key establishment &amp; authentication</h2>
+    <p class="muted sub">Real artifacts captured from a live TLS 1.3 handshake:
+       hybrid ML-KEM-768 key shares, the ML-DSA-65 transcript signature, and the
+       derived-secret fingerprint. The handshake itself runs in milliseconds — these
+       are recorded and replayed (capture-then-replay, never faked).</p>
+    <div id="handshake-stages"></div>
   </section>
 
   <section class="panel">
-    <h2>Stepped view — server (receiver)</h2>
-    <div id="server-stages"></div>
+    <h2>② Operator message — through the established channel</h2>
+    <p class="muted sub">Your plaintext, AEAD-sealed (AES-256-GCM) into ciphertext +
+       tag, framed, transmitted, then decrypted and tag-verified on the far side.
+       This layer is our own code, so every byte of the transformation is shown.</p>
+    <div id="message-stages"></div>
   </section>
 
   <section class="panel full">
@@ -91,44 +102,61 @@
 <script>
 const STAGE_ORDER = ["keygen","encapsulate","derive_secret","sign_transcript",
   "verify_signature","aead_encrypt","transmit","aead_decrypt","verify"];
+// Which stages belong to the handshake phase vs the message phase.
+const HANDSHAKE_STAGES = new Set(["keygen","encapsulate","derive_secret",
+  "sign_transcript","verify_signature"]);
 
 let events = [];
 let replayIdx = 0;
 let replayTimer = null;
 
-function stageCard(ev) {
+function stageCard(ev, n) {
   const el = document.createElement("div");
   el.className = "stage";
-  el.dataset.seq = ev.seq ?? 0;
+  el.dataset.idx = ev._idx;   // global ordinal in the ordered flow (replay uses this)
+  const algo = ev.algorithm ? `<span class="algo">${escapeHtml(ev.algorithm)}</span>` : "";
   el.innerHTML = `
     <div class="head">
-      <strong>${ev.stage} · ${ev.artifact_type}</strong>
+      <strong><span class="stagenum">${n}</span>${ev.stage} · ${ev.artifact_type}${algo}</strong>
       <span class="tag ${ev.side}">${ev.side}</span>
     </div>
     <div class="hr">${escapeHtml(ev.human_readable ?? "")}</div>
-    <div class="meta">${ev.algorithm ?? ""} · ${ev.size_bytes} bytes${ev.note ? " · " + escapeHtml(ev.note) : ""}</div>
-    <div class="bytes">${ev.artifact_bytes_b64 ? "b64: " + ev.artifact_bytes_b64 : "(no extractable bytes)"}</div>`;
+    <div class="meta">${ev.size_bytes} bytes${ev.note ? " · " + escapeHtml(ev.note) : ""}</div>
+    <div class="bytes">${ev.artifact_bytes_b64 ? "b64: " + ev.artifact_bytes_b64 : "(no extractable bytes — see note)"}</div>`;
   return el;
 }
 
 function render() {
-  const c = document.getElementById("client-stages");
-  const s = document.getElementById("server-stages");
-  c.innerHTML = ""; s.innerHTML = "";
-  for (const ev of events) {
-    (ev.side === "client" ? c : s).appendChild(stageCard(ev));
-  }
+  const h = document.getElementById("handshake-stages");
+  const m = document.getElementById("message-stages");
+  h.innerHTML = ""; m.innerHTML = "";
+  let hn = 0, mn = 0;
+  events.forEach((ev, i) => {
+    ev._idx = i;  // global ordinal for replay stepping
+    if (HANDSHAKE_STAGES.has(ev.stage)) h.appendChild(stageCard(ev, ++hn));
+    else m.appendChild(stageCard(ev, ++mn));
+  });
+  if (hn === 0) h.innerHTML = '<p class="muted">No handshake captured yet — press “Send through channel”.</p>';
+  if (mn === 0) m.innerHTML = '<p class="muted">No message yet — press “Send through channel”.</p>';
 }
 
-function setActiveUpTo(seq) {
+function setActiveUpTo(idx) {
   document.querySelectorAll(".stage").forEach(el => {
-    el.classList.toggle("active", Number(el.dataset.seq) <= seq);
+    el.classList.toggle("active", Number(el.dataset.idx) <= idx);
   });
 }
 
+// Order by the canonical protocol stage flow, then by seq within a stage.
+// (Handshake events and message events have independent seq counters, so a plain
+//  seq sort would interleave them; stage order is the true narrative order.)
+function orderEvents(evs) {
+  const rank = s => { const i = STAGE_ORDER.indexOf(s); return i < 0 ? 99 : i; };
+  return evs.slice().sort((a,b) =>
+    rank(a.stage) - rank(b.stage) || (a.seq??0) - (b.seq??0));
+}
+
 async function loadEvents() {
-  events = await (await fetch("/api/events")).json();
-  events.sort((a,b)=>(a.seq??0)-(b.seq??0));
+  events = orderEvents(await (await fetch("/api/events")).json());
   render();
   setActiveUpTo(1e9); // all on by default
 }
@@ -136,33 +164,33 @@ async function loadEvents() {
 document.getElementById("send").onclick = async () => {
   const message = document.getElementById("msg").value;
   const status = document.getElementById("status");
-  status.textContent = "running real PQC-TLS handshake + send…";
+  status.textContent = "capturing a real PQC handshake + sending the message…";
   const r = await fetch("/api/run", {method:"POST",
     headers:{"Content-Type":"application/json"}, body:JSON.stringify({message})});
   const data = await r.json();
-  events = (data.events||[]).sort((a,b)=>(a.seq??0)-(b.seq??0));
+  events = orderEvents(data.events || []);
   render(); setActiveUpTo(1e9);
   status.textContent = data.returncode === 0
-    ? "✓ delivered over X25519MLKEM768 + ML-DSA-65" : "✗ failed (see server log)";
+    ? "✓ handshake captured + message delivered over X25519MLKEM768 + ML-DSA-65"
+    : "✗ failed (see server log)";
 };
 
+function replayStep() {
+  if (replayIdx >= events.length) return false;
+  replayIdx++;
+  setActiveUpTo(replayIdx - 1);   // ordinal index, not seq
+  const ev = events[replayIdx-1];
+  document.getElementById("replay-status").textContent =
+    `step ${replayIdx}/${events.length}: ${ev.stage} · ${ev.artifact_type}`;
+  return true;
+}
 document.getElementById("replay").onclick = () => {
   resetReplay();
   replayTimer = setInterval(() => {
-    if (replayIdx >= events.length) { clearInterval(replayTimer); return; }
-    replayIdx++;
-    setActiveUpTo(events[replayIdx-1].seq);
-    document.getElementById("replay-status").textContent =
-      `step ${replayIdx}/${events.length}: ${events[replayIdx-1].stage}`;
+    if (!replayStep()) clearInterval(replayTimer);
   }, 1100);
 };
-document.getElementById("step").onclick = () => {
-  if (replayIdx >= events.length) return;
-  replayIdx++;
-  setActiveUpTo(events[replayIdx-1].seq);
-  document.getElementById("replay-status").textContent =
-    `step ${replayIdx}/${events.length}: ${events[replayIdx-1].stage}`;
-};
+document.getElementById("step").onclick = replayStep;
 document.getElementById("reset").onclick = resetReplay;
 function resetReplay() {
   if (replayTimer) clearInterval(replayTimer);

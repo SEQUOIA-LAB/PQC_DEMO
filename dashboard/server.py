@@ -25,10 +25,15 @@ INDEX = Path(__file__).resolve().parent / "index.html"
 
 
 def _events() -> list[dict]:
-    f = RUNS / "events.jsonl"
-    if not f.exists():
-        return []
-    return [json.loads(ln) for ln in f.read_text().splitlines() if ln.strip()]
+    # Merge captured handshake artifacts (handshake.jsonl) with the message
+    # stages (events.jsonl) so the dashboard shows the full PQC story in one
+    # flow: real ML-KEM key shares + ML-DSA-65 signature, then the message.
+    out: list[dict] = []
+    for name in ("handshake.jsonl", "events.jsonl"):
+        f = RUNS / name
+        if f.exists():
+            out += [json.loads(ln) for ln in f.read_text().splitlines() if ln.strip()]
+    return out
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -71,12 +76,22 @@ class Handler(BaseHTTPRequestHandler):
         length = int(self.headers.get("Content-Length", 0))
         payload = json.loads(self.rfile.read(length) or b"{}")
         message = str(payload.get("message", "hello quantum world"))
+
+        # First capture a real handshake's artifacts (key shares, ML-DSA-65 sig),
+        # then run the instrumented message through the channel. The dashboard
+        # then renders both: the handshake story AND the message transformation.
+        cap = subprocess.run(
+            [sys.executable, "-m", "capture.handshake",
+             "--port", "14533", "--events-file", "runs/handshake.jsonl"],
+            cwd=REPO_ROOT, capture_output=True, text=True,
+        )
         proc = subprocess.run(
             [sys.executable, "run_demo.py", "--message", message],
             cwd=REPO_ROOT, capture_output=True, text=True,
         )
         self._json({
             "returncode": proc.returncode,
+            "capture_rc": cap.returncode,
             "stdout_tail": proc.stdout.splitlines()[-6:],
             "events": _events(),
         })
