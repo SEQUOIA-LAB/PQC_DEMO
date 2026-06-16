@@ -10,7 +10,7 @@
 #
 # Example:
 #   deploy/sync-ca.sh pi-a.local pi-b.local
-#   deploy/sync-ca.sh ubuntu@10.0.0.1 ubuntu@10.0.0.2 '~/PQC_DEMO'
+#   deploy/sync-ca.sh qian@10.0.0.2 ben@10.0.0.1 '~/PQC_DEMO'   # server .2 -> client .1
 set -euo pipefail
 
 SERVER="${1:-}"

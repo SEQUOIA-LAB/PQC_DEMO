@@ -16,14 +16,14 @@ set -euo pipefail
 MSG="${1:-hello quantum world}"
 SALT="$(openssl rand -hex 16 2>/dev/null || head -c16 /dev/urandom | xxd -p)"
 
-HOST="10.0.0.1"   # server's demo-plane address (deploy/netplan-server.yaml)
+HOST="10.0.0.2"   # server's demo-plane address (deploy/netplan-server.yaml, suite.conf)
 
 cat <<EOF
 Shared salt for this run:
   $SALT
 
 ────────────────────────────────────────────────────────────
-ON THE SERVER PI (Pi-A, 10.0.0.1) — start this FIRST:
+ON THE SERVER PI (qianpi-desktop, 10.0.0.2) — start this FIRST:
 ────────────────────────────────────────────────────────────
   cd <repo> && export PQC_OPENSSL="\$HOME/opt/openssl-3.5/bin/openssl"
   .venv/bin/python -m server \\
@@ -33,7 +33,7 @@ ON THE SERVER PI (Pi-A, 10.0.0.1) — start this FIRST:
     --events-file runs/server.jsonl
 
 ────────────────────────────────────────────────────────────
-ON THE CLIENT PI (Pi-B, 10.0.0.2) — start this SECOND:
+ON THE CLIENT PI (ben-desktop, 10.0.0.1) — start this SECOND:
 ────────────────────────────────────────────────────────────
   cd <repo> && export PQC_OPENSSL="\$HOME/opt/openssl-3.5/bin/openssl"
   .venv/bin/python -m client \\

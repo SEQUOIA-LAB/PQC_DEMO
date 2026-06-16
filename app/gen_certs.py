@@ -69,7 +69,7 @@ def generate(force: bool = False) -> None:
 
     ext = certs_dir / "server.ext"
     ext.write_text(
-        "subjectAltName=DNS:localhost,IP:127.0.0.1,IP:10.0.0.1\n"
+        "subjectAltName=DNS:localhost,IP:127.0.0.1,IP:10.0.0.2,IP:10.0.0.1\n"
         "basicConstraints=CA:FALSE\n"
         "keyUsage=digitalSignature,keyEncipherment\n"
         "extendedKeyUsage=serverAuth\n"

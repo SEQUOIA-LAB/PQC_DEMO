@@ -57,9 +57,20 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 ```
 
 ## Status (built so far)
-- Phases 0–3 implemented and verified on the Mac. Phase 4 (metrics on the Pi) and
-  Phase 5 (deploy + rehearse on hardware) require the two Pis — scaffolded in
-  `deploy/`, run on hardware.
+- Phases 0–4 implemented and verified on the Mac.
+- **Phase 1 proven on the Pis**: real X25519MLKEM768 + ML-DSA-65 handshake over
+  the ethernet link, operator message decrypted + tag-verified on the server.
+- Phase 4 (`metrics/bench.py`) builds — **run it on the Pi** for real Cortex-A72
+  numbers; the Mac numbers are only a smoke test.
+
+## Hardware topology (verified working)
+- **Server** = `qianpi-desktop` = **10.0.0.2** (owns .2; binds here).
+- **Client** = `ben-desktop` = **10.0.0.1**.
+- `protocol/suite.conf` `server_addr=10.0.0.2`; netplan files + `two-pi-run.sh`
+  match. These Pis run Ubuntu **Desktop** → netplan renderer is **NetworkManager**.
+- CA is self-signed on the server Pi; ship `ca.crt` to the client with
+  `deploy/sync-ca.sh qian@10.0.0.2 ben@10.0.0.1`. Both ends need the SAME
+  `--salt` (use `deploy/two-pi-run.sh`).
 
 ## Known constraints
 - The TLS **derived secret is not byte-extractable**; `capture/` shows a SHA-256

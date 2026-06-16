@@ -16,8 +16,8 @@ for the operating rules.
 | 1 | Custom message: `app/` AEAD frame + roles + dashboard | ✅ working end-to-end |
 | 2 | Handshake capture (`capture/`) | ✅ real artifacts captured |
 | 3 | Stepped replay (`replay/`) | ✅ CLI + dashboard API |
-| 4 | Metrics (PQC vs classical) | ⏳ run on the Pi (Cortex-A72) |
-| 5 | Dashboard polish + deploy to Pis | ⏳ `deploy/` scaffolded, run on hardware |
+| 4 | Metrics (`metrics/`): PQC vs classical latency, throughput, conns/sec | ✅ built; **run on the Pi** for A72 numbers |
+| 5 | Dashboard polish + deploy to Pis | ⏳ `deploy/` scaffolded; Phase 1 proven on hardware |
 
 ## Quick start (Mac or Linux/arm64)
 
@@ -41,7 +41,10 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 # 6) Stepped replay in the terminal (Phase 3).
 .venv/bin/python -m replay.engine --step
 
-# 7) The dashboard (message input + steps + metrics): http://127.0.0.1:8080
+# 7) Benchmark PQC vs classical (Phase 4 — run on the Pi for A72 numbers).
+.venv/bin/python -m metrics.bench --iters 50 --time 5 --out runs/metrics.json
+
+# 8) The dashboard (message input + steps + metrics): http://127.0.0.1:8080
 .venv/bin/python -m dashboard.server
 ```
 

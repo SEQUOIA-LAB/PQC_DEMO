@@ -174,11 +174,20 @@ function resetReplay() {
 async function loadMetrics() {
   try {
     const m = await (await fetch("/api/metrics")).json();
-    if (m && !m.note) {
-      const rows = Object.entries(m).map(([k,v]) =>
-        `<tr><td class="muted">${k}</td><td>${JSON.stringify(v)}</td></tr>`).join("");
-      document.getElementById("metrics").innerHTML = rows;
+    const tb = document.getElementById("metrics");
+    if (!m || m.note && !m.pqc) {  // no metrics.json yet
+      return;
     }
+    const p = m.pqc, c = m.classical, cmp = m.comparison || {};
+    const fmt = (v, suffix="") => v == null ? "—" : v + suffix;
+    tb.innerHTML = `
+      <tr><td class="muted">measured on</td><td colspan="2">${escapeHtml(m.measured_on||"")} · ${escapeHtml(m.openssl||"")}</td></tr>
+      <tr><td></td><td><b style="color:var(--server)">PQC</b><br><span class="muted">${escapeHtml(p.group)} + ${escapeHtml(p.cert_sig)}</span></td>
+                    <td><b style="color:var(--client)">classical</b><br><span class="muted">${escapeHtml(c.group)} + ${escapeHtml(c.cert_sig)}</span></td></tr>
+      <tr><td class="muted">handshake mean</td><td>${fmt(p.handshake_mean_ms," ms")}</td><td>${fmt(c.handshake_mean_ms," ms")}</td></tr>
+      <tr><td class="muted">handshake p95</td><td>${fmt(p.handshake_p95_ms," ms")}</td><td>${fmt(c.handshake_p95_ms," ms")}</td></tr>
+      <tr><td class="muted">connections/sec</td><td>${fmt(p.conns_per_sec)}</td><td>${fmt(c.conns_per_sec)}</td></tr>
+      <tr><td class="muted">PQC overhead</td><td colspan="2" style="color:var(--accent)">${fmt(cmp.handshake_overhead_ms," ms")} (${fmt(cmp.handshake_overhead_pct,"%")})</td></tr>`;
   } catch (e) {}
 }
 
