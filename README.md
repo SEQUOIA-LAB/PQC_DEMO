@@ -77,6 +77,20 @@ shared salt, default message, server address, and CA all come from the committed
 repo + `protocol/suite.conf`, so there are no manual arguments. Watch the message
 traverse every stage on the server Pi's dashboard.
 
+### Optional: Falcon / FN-DSA on the Pis
+
+Falcon is not native to OpenSSL; it needs the OQS provider built **on each Pi**
+that uses it (the server signs, the client verifies, so do both):
+
+```bash
+# on BOTH Pis:
+deploy/deploy.sh server --with-falcon    # or: client --with-falcon
+```
+
+This apt-installs cmake/ninja and builds liboqs + oqs-provider (~2–5 min on a
+Pi 4). After it, `falcon512`/`falcon1024` appear in the dashboard signature
+dropdown. Without it, the default ML-DSA demo runs unchanged.
+
 ## Pinned versions
 - OpenSSL **3.5.7** (latest 3.5.x LTS, verified 2026-06-15)
 - Python: `cryptography==44.0.0`, `jsonschema==4.23.0`

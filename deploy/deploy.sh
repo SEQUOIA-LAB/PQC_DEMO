@@ -17,16 +17,24 @@
 #
 # Usage:
 #   deploy/deploy.sh server | client
-#   deploy/deploy.sh server --no-start   # prepare only, don't launch
+#   deploy/deploy.sh server --no-start      # prepare only, don't launch
+#   deploy/deploy.sh server --with-falcon   # also build the OQS provider (Falcon)
+#                                           # run on BOTH Pis to use Falcon certs
 set -euo pipefail
 
 ROLE="${1:-}"
 shift || true
 NO_START=0
-for arg in "$@"; do [ "$arg" = "--no-start" ] && NO_START=1; done
+WITH_FALCON=0
+for arg in "$@"; do
+  case "$arg" in
+    --no-start)    NO_START=1 ;;
+    --with-falcon) WITH_FALCON=1 ;;
+  esac
+done
 
 [ "$ROLE" = "server" ] || [ "$ROLE" = "client" ] || {
-  echo "usage: deploy/deploy.sh <server|client> [--no-start]" >&2; exit 2; }
+  echo "usage: deploy/deploy.sh <server|client> [--no-start] [--with-falcon]" >&2; exit 2; }
 
 cd "$(dirname "$0")/.."
 REPO="$(pwd)"
@@ -42,6 +50,26 @@ git pull --ff-only
 if [ ! -x "$PQC_OPENSSL" ]; then
   echo "[deploy] building pinned OpenSSL (first run on this Pi)"
   crypto/setup-openssl.sh
+fi
+
+# 2b) OPTIONAL Falcon / FN-DSA via the OQS provider (--with-falcon). Off by
+#     default so the core demo stays lean (PROJECT_PLAN.md §5). Builds the
+#     provider on THIS Pi (liboqs is native ARM code, can't be copied from the
+#     Mac). Both Pis need it: the server signs with Falcon, the client verifies.
+OQS_MODULE="$HOME/opt/openssl-3.5/lib/ossl-modules"
+if [ "$WITH_FALCON" = "1" ]; then
+  if ls "$OQS_MODULE"/oqsprovider.* >/dev/null 2>&1; then
+    echo "[deploy] OQS provider already built — skipping (Falcon available)"
+  else
+    echo "[deploy] --with-falcon: building OQS provider (liboqs + oqs-provider)"
+    # cmake/ninja are not installed on Ubuntu by default.
+    if ! command -v cmake >/dev/null || ! command -v ninja >/dev/null; then
+      echo "[deploy] installing build deps: cmake ninja-build"
+      command -v sudo >/dev/null && sudo apt-get install -y cmake ninja-build build-essential git \
+        || { echo "[deploy] ERROR: install cmake + ninja-build, then re-run" >&2; exit 5; }
+    fi
+    CMAKE_GENERATOR=Ninja crypto/setup-oqs.sh
+  fi
 fi
 
 # 3) Python venv + pinned deps.
@@ -70,6 +98,14 @@ if [ ! -x .venv/bin/pip ]; then
 fi
 echo "[deploy] syncing pinned Python deps"
 .venv/bin/pip install -q -r requirements.txt
+
+# Report whether Falcon is available on this Pi (the dropdown only shows it if so).
+if ls "$OQS_MODULE"/oqsprovider.* >/dev/null 2>&1; then
+  echo "[deploy] Falcon available — signature dropdown includes falcon512/falcon1024"
+  echo "[deploy]   (the OTHER Pi must also be deployed --with-falcon to use it)"
+else
+  echo "[deploy] Falcon not built (native ML-DSA/ML-KEM only). To add it: deploy.sh $ROLE --with-falcon"
+fi
 
 # 4) Certs. The demo CA + server cert are COMMITTED to the repo (throwaway demo
 #    certs), so a `git pull` gives BOTH Pis the same CA with zero coordination.
