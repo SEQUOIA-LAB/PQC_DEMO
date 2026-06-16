@@ -64,7 +64,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"error": str(e)}, 500)
         elif path == "/api/metrics":
             f = RUNS / "metrics.json"
-            self._json(json.loads(f.read_text()) if f.exists() else {"note": "no metrics yet (run on Pi, Phase 4)"})
+            self._json(json.loads(f.read_text()) if f.exists() else {"note": "no measurements yet"})
         elif path == "/api/algorithms":
             from app.algorithms import (active_sig_algs, DEFAULT_SIG,
                                         KEM_GROUPS, DEFAULT_GROUP)
@@ -85,6 +85,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         path = urlparse(self.path).path
+        if path == "/api/benchmark":
+            self._run_benchmark()
+            return
         if path != "/api/run":
             self._json({"error": "not found"}, 404)
             return
@@ -128,6 +131,30 @@ class Handler(BaseHTTPRequestHandler):
             "group": group or "X25519MLKEM768",
             "stdout_tail": proc.stdout.splitlines()[-6:],
             "events": _events(),
+        })
+
+    def _run_benchmark(self) -> None:
+        """Run metrics.bench (PQC vs classical + primitive speeds) and return it.
+
+        Drives the same harness as the CLI. Defaults are modest so the demo-table
+        click finishes in a reasonable time; override via the POST body.
+        """
+        length = int(self.headers.get("Content-Length", 0))
+        payload = json.loads(self.rfile.read(length) or b"{}")
+        iters = str(int(payload.get("iters", 30)))
+        time_s = str(int(payload.get("time", 4)))
+        speed_s = str(int(payload.get("speed_seconds", 2)))
+        proc = subprocess.run(
+            [sys.executable, "-m", "metrics.bench",
+             "--iters", iters, "--time", time_s, "--speed-seconds", speed_s,
+             "--out", "runs/metrics.json"],
+            cwd=REPO_ROOT, capture_output=True, text=True,
+        )
+        f = RUNS / "metrics.json"
+        self._json({
+            "returncode": proc.returncode,
+            "stderr_tail": proc.stderr.splitlines()[-4:],
+            "metrics": json.loads(f.read_text()) if f.exists() else None,
         })
 
 

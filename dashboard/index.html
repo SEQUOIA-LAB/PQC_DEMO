@@ -50,8 +50,10 @@
   button.ghost { background:transparent; color:var(--fg-dim); border:1px solid var(--line); font-weight:500; }
   button.ghost:hover { color:var(--fg); border-color:var(--accent-dim); }
   #status { font-size:12.5px; color:var(--fg-dim); margin-top:10px; min-height:1em; }
-  #status.ok { color:var(--ok); }
-  #status.err { color:var(--server); }
+  #status.ok, #bench-status.ok { color:var(--ok); }
+  #status.err, #bench-status.err { color:var(--server); }
+  #bench-status { font-size:12.5px; color:var(--fg-dim); }
+  button:disabled { opacity:.55; cursor:default; }
 
   /* Stage cards */
   .stage { border:1px solid var(--line); border-radius:9px; padding:12px 14px; margin:9px 0;
@@ -159,6 +161,10 @@
   <section class="panel full">
     <h2>Performance</h2>
     <p class="desc">Post-quantum versus classical, measured on this host.</p>
+    <div class="replay-row" style="margin-bottom:16px">
+      <button id="bench" class="ghost">Run benchmark</button>
+      <span id="bench-status"></span>
+    </div>
     <table class="tbl"><tbody id="metrics">
       <tr><td class="metrics-empty">No measurements yet. Run the benchmark to populate this section.</td></tr>
     </tbody></table>
@@ -314,8 +320,11 @@ function resetReplay() {
 }
 
 async function loadMetrics() {
-  try {
-    const m = await (await fetch("/api/metrics")).json();
+  try { renderMetrics(await (await fetch("/api/metrics")).json()); }
+  catch (e) {}
+}
+
+function renderMetrics(m) {
     const tb = document.getElementById("metrics");
     if (!m || (m.note && !m.pqc)) return;
     const p = m.pqc, c = m.classical, cmp = m.comparison || {};
@@ -348,8 +357,29 @@ async function loadMetrics() {
     const html = renderPrim("Key exchange", parseRows(prim.kem)) +
                  renderPrim("Signature", parseRows(prim.signature));
     pe.innerHTML = html || '<span class="metrics-empty">No primitive benchmarks yet.</span>';
-  } catch (e) {}
 }
+
+document.getElementById("bench").onclick = async () => {
+  const btn = document.getElementById("bench");
+  const st = document.getElementById("bench-status");
+  btn.disabled = true;
+  st.className = ""; st.textContent = "Benchmarking — this takes a moment…";
+  try {
+    const r = await fetch("/api/benchmark", {method:"POST",
+      headers:{"Content-Type":"application/json"}, body:"{}"});
+    const data = await r.json();
+    if (data.returncode === 0 && data.metrics) {
+      renderMetrics(data.metrics);
+      st.className = "ok"; st.textContent = "Benchmark complete.";
+    } else {
+      st.className = "err"; st.textContent = "Benchmark failed. Check the server log.";
+    }
+  } catch (e) {
+    st.className = "err"; st.textContent = "Benchmark request failed.";
+  } finally {
+    btn.disabled = false;
+  }
+};
 
 function escapeHtml(s){return String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));}
 
