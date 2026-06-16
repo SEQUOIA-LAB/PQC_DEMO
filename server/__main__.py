@@ -45,6 +45,8 @@ def main() -> int:
     ap.add_argument("--keylog", default=None)
     ap.add_argument("--sig-alg", default=None,
                     help="certificate signature algorithm (defaults to suite default)")
+    ap.add_argument("--group", default=None,
+                    help="key-exchange group (defaults to suite default)")
     args = ap.parse_args()
 
     host = args.host or suite.server_addr
@@ -62,9 +64,10 @@ def main() -> int:
                            file_path=args.events_file)
     keylog = Path(args.keylog) if args.keylog else None
 
+    group = args.group or suite.group
     proc = spawn_server(suite, host=args.host, port=port, keylog=keylog,
-                        cert=cert, key=srv_key)
-    print(f"[server] listening on {args.host}:{port} group={suite.group} "
+                        cert=cert, key=srv_key, group=group)
+    print(f"[server] listening on {args.host}:{port} group={group} "
           f"sig={sig_alg}", file=sys.stderr)
 
     try:

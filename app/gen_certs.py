@@ -19,7 +19,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from app.algorithms import SIG_ALGS, get
+from app.algorithms import active_sig_algs, get
 from app.config import SUITE, REPO_ROOT
 
 # Our locally-built OpenSSL has no installed default openssl.cnf (install_sw),
@@ -122,7 +122,7 @@ if __name__ == "__main__":
     args = ap.parse_args()
     try:
         if args.all:
-            for spec in SIG_ALGS:
+            for spec in active_sig_algs():
                 ensure_cert(spec.id, force=args.force)
             print("[gen_certs] DONE all selectable algorithms.")
         elif args.sig:

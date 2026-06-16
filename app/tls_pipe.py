@@ -28,21 +28,22 @@ def _env(extra: dict[str, str] | None = None) -> dict[str, str]:
 
 def spawn_server(suite: Suite, *, host: str, port: int,
                  keylog: Path | None = None,
-                 cert: Path | None = None, key: Path | None = None) -> subprocess.Popen:
+                 cert: Path | None = None, key: Path | None = None,
+                 group: str | None = None) -> subprocess.Popen:
     """Spawn `s_server` in raw byte-relay mode (no -www): stdin->TLS, TLS->stdout.
 
     With -quiet and no -www, s_server pipes its stdin to the client and the
     client's bytes to its stdout, giving us a clean bidirectional app channel.
 
     cert/key override the suite default so the operator can pick the certificate
-    signature algorithm (app/algorithms.py) at the dashboard.
+    signature algorithm; group overrides the key-exchange group (app/algorithms.py).
     """
     cmd = [
         suite.openssl_bin, "s_server",
         "-accept", f"{host}:{port}",
         "-cert", str(cert or suite.server_cert),
         "-key", str(key or suite.server_key),
-        "-groups", suite.group,
+        "-groups", group or suite.group,
         "-tls1_3",
         "-quiet",
     ]
@@ -55,16 +56,16 @@ def spawn_server(suite: Suite, *, host: str, port: int,
 
 def spawn_client(suite: Suite, *, host: str, port: int,
                  keylog: Path | None = None,
-                 ca: Path | None = None) -> subprocess.Popen:
+                 ca: Path | None = None, group: str | None = None) -> subprocess.Popen:
     """Spawn `s_client` in raw byte-relay mode (-quiet): stdin->TLS, TLS->stdout.
 
     ca overrides the suite default CA so the client trusts the CA matching the
-    server's chosen signature algorithm.
+    server's chosen signature algorithm; group overrides the key-exchange group.
     """
     cmd = [
         suite.openssl_bin, "s_client",
         "-connect", f"{host}:{port}",
-        "-groups", suite.group,
+        "-groups", group or suite.group,
         "-CAfile", str(ca or suite.ca_cert),
         "-tls1_3",
         "-quiet",

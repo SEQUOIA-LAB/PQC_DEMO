@@ -33,6 +33,8 @@ def main() -> int:
     ap.add_argument("--sig-alg", default=None,
                     help="certificate signature algorithm (app/algorithms.py); "
                          "defaults to the suite default. Generates the cert if needed.")
+    ap.add_argument("--group", default=None,
+                    help="key-exchange group (app/algorithms.py); defaults to suite default")
     args = ap.parse_args()
 
     RUNS.mkdir(exist_ok=True)
@@ -47,6 +49,9 @@ def main() -> int:
         ensure_cert(args.sig_alg)  # generate if first time for this algorithm
         sig_args = ["--sig-alg", args.sig_alg]
         print(f"[run_demo] certificate signature algorithm: {args.sig_alg}")
+    if args.group:
+        sig_args += ["--group", args.group]
+        print(f"[run_demo] key-exchange group: {args.group}")
 
     server_events = RUNS / "server.jsonl"
     client_events = RUNS / "client.jsonl"

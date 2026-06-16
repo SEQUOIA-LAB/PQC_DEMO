@@ -151,18 +151,29 @@ def bench_suite(suite, *, label, group, cert, key, ca, port, iters, s_time_s) ->
 
 
 def primitive_speed(suite, seconds: float) -> dict:
-    """`openssl speed` for the KEM + signatures, PQC and a classical baseline."""
+    """`openssl speed` for the KEMs + signatures across all levels vs classical.
+
+    Covers the full PQC progression so the dashboard can show how cost scales with
+    security level: ML-KEM-512/768/1024 and ML-DSA-44/65/87, each against a
+    classical baseline (X25519, ECDSA-P256).
+    """
     out: dict = {}
+    secs = str(max(1, int(seconds)))  # `speed -seconds` wants an integer
+    # KEM: ML-KEM levels vs classical X25519 (all valid in -kem-algorithms).
+    # Signature: ML-DSA levels. (`speed -signature-algorithms` does not accept the
+    # "ECDSA-P256" name; the classical signature contrast is already covered by
+    # the handshake-level PQC-vs-classical comparison above.)
     for kind, args in [
-        ("kem", ["speed", "-kem-algorithms", "-seconds", str(seconds),
-                 "ML-KEM-768", "X25519"]),
-        ("signature", ["speed", "-signature-algorithms", "-seconds", str(seconds),
-                       "ML-DSA-65", "ECDSA-P256"]),
+        ("kem", ["speed", "-kem-algorithms", "-seconds", secs,
+                 "ML-KEM-512", "ML-KEM-768", "ML-KEM-1024", "X25519"]),
+        ("signature", ["speed", "-signature-algorithms", "-seconds", secs,
+                       "ML-DSA-44", "ML-DSA-65", "ML-DSA-87"]),
     ]:
-        p = _ossl(suite, *args, capture_output=True, text=True, timeout=600)
-        # Keep the human-readable table lines; the dashboard renders them as-is.
-        rows = [ln for ln in (p.stdout + p.stderr).splitlines()
-                if any(k in ln for k in ("ML-KEM", "ML-DSA", "X25519", "ECDSA", "keygen", "sign", "encaps"))]
+        p = _ossl(suite, *args, capture_output=True, text=True, timeout=900)
+        # Keep the "Doing <alg> <op> ops ... in <t>s" result lines verbatim; the
+        # dashboard renders them as a compact table.
+        rows = [ln.strip() for ln in (p.stdout + p.stderr).splitlines()
+                if " ops in " in ln and ("ML-KEM" in ln or "ML-DSA" in ln or "X25519" in ln)]
         out[kind] = rows
     return out
 

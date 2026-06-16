@@ -59,6 +59,8 @@ def main() -> int:
                          "(survives starting the client before the server)")
     ap.add_argument("--sig-alg", default=None,
                     help="certificate signature algorithm (must match the server)")
+    ap.add_argument("--group", default=None,
+                    help="key-exchange group (must match the server)")
     args = ap.parse_args()
 
     host = args.host or suite.server_addr
@@ -84,8 +86,9 @@ def main() -> int:
     from app.gen_certs import ensure_cert
     ca, _crt, _key = ensure_cert(sig_alg)
 
-    proc = spawn_client(suite, host=args.host, port=port, keylog=keylog, ca=ca)
-    print(f"[client] connecting to {args.host}:{port} group={suite.group} "
+    group = args.group or suite.group
+    proc = spawn_client(suite, host=args.host, port=port, keylog=keylog, ca=ca, group=group)
+    print(f"[client] connecting to {args.host}:{port} group={group} "
           f"sig={sig_alg}", file=sys.stderr)
     # Let the handshake complete (it is milliseconds; we wait conservatively).
     time.sleep(args.connect_wait)

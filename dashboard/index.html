@@ -65,8 +65,13 @@
       <span id="status" class="muted"></span>
     </div>
     <div class="row">
-      <label class="muted" for="sigalg">Certificate signature:</label>
+      <label class="muted" for="group">Key exchange:</label>
+      <select id="group"></select>
+      <label class="muted" for="sigalg" style="margin-left:12px">Certificate signature:</label>
       <select id="sigalg"></select>
+    </div>
+    <div class="row">
+      <span id="group-note" class="muted"></span>
       <span id="sigalg-note" class="muted"></span>
     </div>
   </section>
@@ -103,6 +108,8 @@
     <table class="metrics"><tbody id="metrics">
       <tr><td class="muted">No metrics yet. Run the metrics harness on the Pi (Phase 4).</td></tr>
     </tbody></table>
+    <h2 style="margin-top:18px">Primitive speed — by algorithm &amp; security level</h2>
+    <div id="primitives" class="muted">No primitive benchmarks yet.</div>
   </section>
 </main>
 
@@ -168,39 +175,50 @@ async function loadEvents() {
   setActiveUpTo(1e9); // all on by default
 }
 
-let sigAlgsById = {};
-async function loadAlgorithms() {
-  const data = await (await fetch("/api/algorithms")).json();
-  const sel = document.getElementById("sigalg");
+// Populate a <select> from a registry list, adding the legacy-name hint to each
+// option label so a general audience sees the familiar word alongside the FIPS
+// name (the demo asserts FIPS names; the legacy hint is approximate, "≈").
+function fillSelect(selId, noteId, items, defaultId) {
+  const sel = document.getElementById(selId);
+  const byId = {};
   sel.innerHTML = "";
-  for (const a of data.signature_algorithms) {
-    sigAlgsById[a.id] = a;
+  for (const a of items) {
+    byId[a.id] = a;
     const opt = document.createElement("option");
     opt.value = a.id;
-    opt.textContent = a.label + (a.id === data.default ? "  (default)" : "");
-    if (a.id === data.default) opt.selected = true;
+    const legacy = a.legacy ? `  [${a.legacy}]` : "";
+    opt.textContent = a.label + legacy + (a.id === defaultId ? "  (default)" : "");
+    if (a.id === defaultId) opt.selected = true;
     sel.appendChild(opt);
   }
   const showNote = () => {
-    const a = sigAlgsById[sel.value];
-    document.getElementById("sigalg-note").textContent = a ? `${a.fips} · ${a.note}` : "";
+    const a = byId[sel.value];
+    document.getElementById(noteId).textContent =
+      a ? `${a.fips} · ${a.note}` + (a.legacy ? ` · informally ${a.legacy}` : "") : "";
   };
   sel.onchange = showNote; showNote();
+}
+
+async function loadAlgorithms() {
+  const data = await (await fetch("/api/algorithms")).json();
+  fillSelect("group", "group-note", data.kem_groups, data.default_group);
+  fillSelect("sigalg", "sigalg-note", data.signature_algorithms, data.default);
 }
 
 document.getElementById("send").onclick = async () => {
   const message = document.getElementById("msg").value;
   const sig_alg = document.getElementById("sigalg").value;
+  const group = document.getElementById("group").value;
   const status = document.getElementById("status");
-  status.textContent = `capturing a real PQC handshake (cert: ${sig_alg}) + sending…`;
+  status.textContent = `capturing a real handshake (${group} + ${sig_alg}) + sending…`;
   const r = await fetch("/api/run", {method:"POST",
-    headers:{"Content-Type":"application/json"}, body:JSON.stringify({message, sig_alg})});
+    headers:{"Content-Type":"application/json"}, body:JSON.stringify({message, sig_alg, group})});
   const data = await r.json();
   events = orderEvents(data.events || []);
   render(); setActiveUpTo(1e9);
   status.textContent = data.returncode === 0
-    ? `✓ delivered over X25519MLKEM768 + ${data.sig_alg}`
-    : "✗ failed (see server log)";
+    ? `✓ delivered over ${data.group} + ${data.sig_alg}`
+    : "✗ failed (see server log — some pure-PQC/classical group combos may differ)";
 };
 
 function replayStep() {
@@ -244,6 +262,29 @@ async function loadMetrics() {
       <tr><td class="muted">handshake p95</td><td>${fmt(p.handshake_p95_ms," ms")}</td><td>${fmt(c.handshake_p95_ms," ms")}</td></tr>
       <tr><td class="muted">connections/sec</td><td>${fmt(p.conns_per_sec)}</td><td>${fmt(c.conns_per_sec)}</td></tr>
       <tr><td class="muted">PQC overhead</td><td colspan="2" style="color:var(--accent)">${fmt(cmp.handshake_overhead_ms," ms")} (${fmt(cmp.handshake_overhead_pct,"%")})</td></tr>`;
+
+    // Primitive speed: parse the "Doing <alg> <op> ops ... : <n> ... in <t>s" lines
+    // into ops/sec by algorithm, so the security-level progression is visible.
+    const prim = m.primitives || {};
+    const parseRows = rows => (rows||[]).map(ln => {
+      const mm = ln.match(/Doing (\S+) (\w+) ops .*: (\d+) .* in ([\d.]+)s/);
+      if (!mm) return null;
+      const [, alg, op, n, t] = mm;
+      return { alg, op, ops: Math.round(Number(n)/Number(t)) };
+    }).filter(Boolean);
+    const renderPrim = (title, rows) => {
+      if (!rows.length) return "";
+      let html = `<div style="margin-top:6px"><b>${title}</b><table class="metrics"><tbody>`;
+      for (const r of rows)
+        html += `<tr><td class="muted">${escapeHtml(r.alg)}</td><td>${escapeHtml(r.op)}</td><td>${r.ops.toLocaleString()} ops/s</td></tr>`;
+      return html + "</tbody></table></div>";
+    };
+    const pe = document.getElementById("primitives");
+    const kemHtml = renderPrim("KEM (key exchange)", parseRows(prim.kem));
+    const sigHtml = renderPrim("Signature", parseRows(prim.signature));
+    pe.innerHTML = (kemHtml || sigHtml)
+      ? kemHtml + sigHtml
+      : '<span class="muted">No primitive benchmarks yet (run metrics on the Pi).</span>';
   } catch (e) {}
 }
 

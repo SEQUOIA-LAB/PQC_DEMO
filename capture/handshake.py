@@ -33,18 +33,18 @@ RE_CERTVERIFY = re.compile(r"CertificateVerify, Length=(\d+)")
 RE_NAMEDGROUP = re.compile(r"NamedGroup:\s*(\S+)")
 
 
-def _spawn_server(suite, host, port, keylog, cert, key):
+def _spawn_server(suite, host, port, keylog, cert, key, group):
     cmd = [suite.openssl_bin, "s_server", "-accept", f"{host}:{port}",
            "-cert", str(cert), "-key", str(key),
-           "-groups", suite.group, "-tls1_3", "-www", "-quiet"]
+           "-groups", group, "-tls1_3", "-www", "-quiet"]
     env = {**os.environ, **_OSSL_ENV, "SSLKEYLOGFILE": str(keylog)}
     return subprocess.Popen(cmd, stdout=subprocess.DEVNULL,
                             stderr=subprocess.DEVNULL, env=env)
 
 
-def _client_trace(suite, host, port, keylog, ca) -> str:
+def _client_trace(suite, host, port, keylog, ca, group) -> str:
     cmd = [suite.openssl_bin, "s_client", "-connect", f"{host}:{port}",
-           "-groups", suite.group, "-CAfile", str(ca),
+           "-groups", group, "-CAfile", str(ca),
            "-tls1_3", "-trace"]
     env = {**os.environ, **_OSSL_ENV, "SSLKEYLOGFILE": str(keylog)}
     p = subprocess.run(cmd, input=b"Q\n", capture_output=True, env=env, timeout=15)
@@ -52,11 +52,28 @@ def _client_trace(suite, host, port, keylog, ca) -> str:
 
 
 def capture(host: str, port: int, events_file: str | None,
-            sig_alg: str | None = None) -> int:
+            sig_alg: str | None = None, group: str | None = None) -> int:
     suite = load_suite()
     sig_alg = sig_alg or suite.sig_alg
+    group = group or suite.group
     from app.gen_certs import ensure_cert
     ca, cert, key = ensure_cert(sig_alg)
+
+    # Describe the key share according to the group kind (hybrid / pure / classical).
+    from app.algorithms import get_group
+    try:
+        kind = get_group(group).kind
+    except KeyError:
+        kind = "hybrid" if "MLKEM" in group else "classical"
+    if kind == "hybrid":
+        client_desc = "classical pubkey + ML-KEM encapsulation key (hybrid)"
+        server_desc = "ML-KEM ciphertext + classical pubkey (hybrid)"
+    elif kind == "pure-pqc":
+        client_desc = "ML-KEM encapsulation key (pure PQC)"
+        server_desc = "ML-KEM ciphertext (pure PQC)"
+    else:
+        client_desc = "classical ECDH public key"
+        server_desc = "classical ECDH public key"
 
     # Capture is a one-shot snapshot; start its events file fresh each run.
     if events_file:
@@ -65,33 +82,30 @@ def capture(host: str, port: int, events_file: str | None,
     tmp = Path(tempfile.mkdtemp(prefix="pqc-capture-"))
     keylog = tmp / "keylog.txt"
 
-    srv = _spawn_server(suite, host, port, keylog, cert, key)
+    srv = _spawn_server(suite, host, port, keylog, cert, key, group)
     time.sleep(1.0)
     try:
-        trace = _client_trace(suite, host, port, keylog, ca)
+        trace = _client_trace(suite, host, port, keylog, ca, group)
     finally:
         srv.terminate()
 
-    group = (RE_GROUP.search(trace) or [None, suite.group])[1]
+    neg_group = (RE_GROUP.search(trace) or [None, group])[1]
     keyshares = [int(m) for m in RE_KEYSHARE.findall(trace)]
     certverify = RE_CERTVERIFY.search(trace)
 
-    # Stage: keygen — the client's key_share (X25519 pubkey + ML-KEM-768
-    # encapsulation key). The first key_share in the trace is the client's offer.
+    # Stage: keygen — the client's key_share. First key_share = client's offer.
     if keyshares:
         emitter.emit("keygen", "client_key_share",
-                     algorithm=group, size_bytes=keyshares[0],
-                     human_readable=f"client hybrid key_share {keyshares[0]} bytes "
-                                    f"(X25519 pubkey + ML-KEM-768 encapsulation key)",
+                     algorithm=neg_group, size_bytes=keyshares[0],
+                     human_readable=f"client key_share {keyshares[0]} bytes ({client_desc})",
                      note="real size from s_client -trace; raw bytes live in the TLS record")
 
-    # Stage: encapsulate — the server's key_share carries the ML-KEM ciphertext.
+    # Stage: encapsulate — the server's key_share (the KEM ciphertext).
     if len(keyshares) >= 2:
-        emitter.emit("encapsulate", "server_key_share", algorithm=group,
+        emitter.emit("encapsulate", "server_key_share", algorithm=neg_group,
                      size_bytes=keyshares[1],
-                     human_readable=f"server hybrid key_share {keyshares[1]} bytes "
-                                    f"(ML-KEM-768 ciphertext + X25519 pubkey)",
-                     note="ML-KEM ciphertext is the encapsulation against the client key")
+                     human_readable=f"server key_share {keyshares[1]} bytes ({server_desc})",
+                     note="the KEM ciphertext is the encapsulation against the client key")
 
     # Stage: sign_transcript / verify_signature — the chosen signature alg's
     # CertificateVerify. The artifact_type reflects the selected algorithm.
@@ -112,7 +126,7 @@ def capture(host: str, port: int, events_file: str | None,
         secret_material = keylog.read_bytes()
         fp = hashlib.sha256(secret_material).hexdigest()
         emitter.emit("derive_secret", "shared_secret_fingerprint",
-                     algorithm=group, size_bytes=0,
+                     algorithm=neg_group, size_bytes=0,
                      human_readable=f"sha256(keylog secrets)={fp[:32]}…",
                      note="derived secret not directly extractable from TLS; showing a "
                           "SHA-256 fingerprint of the SSLKEYLOGFILE secret material")
@@ -134,6 +148,9 @@ if __name__ == "__main__":
     ap.add_argument("--events-file", default=None)
     ap.add_argument("--sig-alg", default=None,
                     help="certificate signature algorithm (defaults to suite default)")
+    ap.add_argument("--group", default=None,
+                    help="key-exchange group (defaults to suite default)")
     a = ap.parse_args()
     suite = load_suite()
-    raise SystemExit(capture(a.host, a.port or suite.server_port, a.events_file, a.sig_alg))
+    raise SystemExit(capture(a.host, a.port or suite.server_port, a.events_file,
+                             a.sig_alg, a.group))

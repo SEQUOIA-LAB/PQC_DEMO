@@ -66,12 +66,19 @@ class Handler(BaseHTTPRequestHandler):
             f = RUNS / "metrics.json"
             self._json(json.loads(f.read_text()) if f.exists() else {"note": "no metrics yet (run on Pi, Phase 4)"})
         elif path == "/api/algorithms":
-            from app.algorithms import SIG_ALGS, DEFAULT_SIG
+            from app.algorithms import (active_sig_algs, DEFAULT_SIG,
+                                        KEM_GROUPS, DEFAULT_GROUP)
             self._json({
                 "default": DEFAULT_SIG,
                 "signature_algorithms": [
                     {"id": a.id, "label": a.label, "fips": a.fips,
-                     "kind": a.kind, "note": a.note} for a in SIG_ALGS],
+                     "kind": a.kind, "note": a.note, "legacy": a.legacy}
+                    for a in active_sig_algs()],
+                "default_group": DEFAULT_GROUP,
+                "kem_groups": [
+                    {"id": g.id, "label": g.label, "fips": g.fips,
+                     "kind": g.kind, "note": g.note, "legacy": g.legacy}
+                    for g in KEM_GROUPS],
             })
         else:
             self._json({"error": "not found"}, 404)
@@ -85,15 +92,22 @@ class Handler(BaseHTTPRequestHandler):
         payload = json.loads(self.rfile.read(length) or b"{}")
         message = str(payload.get("message", "hello quantum world"))
         sig_alg = payload.get("sig_alg")  # optional; None -> suite default
+        group = payload.get("group")      # optional; None -> suite default
 
-        # Validate the requested algorithm against the registry (fail clearly).
+        # Validate requested algorithm + group against the registries (fail clearly).
         sig_args: list[str] = []
         if sig_alg:
             from app.algorithms import all_ids
             if sig_alg not in all_ids():
                 self._json({"error": f"unknown signature algorithm {sig_alg!r}"}, 400)
                 return
-            sig_args = ["--sig-alg", sig_alg]
+            sig_args += ["--sig-alg", sig_alg]
+        if group:
+            from app.algorithms import all_group_ids
+            if group not in all_group_ids():
+                self._json({"error": f"unknown KEM group {group!r}"}, 400)
+                return
+            sig_args += ["--group", group]
 
         # First capture a real handshake's artifacts (key shares + the chosen
         # signature), then run the instrumented message through the channel, so
@@ -111,6 +125,7 @@ class Handler(BaseHTTPRequestHandler):
             "returncode": proc.returncode,
             "capture_rc": cap.returncode,
             "sig_alg": sig_alg or "ML-DSA-65",
+            "group": group or "X25519MLKEM768",
             "stdout_tail": proc.stdout.splitlines()[-6:],
             "events": _events(),
         })
