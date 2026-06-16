@@ -37,9 +37,28 @@ if [ ! -x "$PQC_OPENSSL" ]; then
 fi
 
 # 3) Python venv + pinned deps.
-if [ ! -d .venv ]; then
+#    On Ubuntu the venv module is a SEPARATE apt package (python3-venv /
+#    python3.NN-venv). If it is missing, `python3 -m venv` half-fails and leaves
+#    a .venv with no bin/pip — the confusing "no such file or directory" error.
+#    Detect it up front, try to install it, and fail loud if we can't.
+if [ ! -x .venv/bin/pip ]; then
+  rm -rf .venv  # clear any half-created venv from a previous failed run
   echo "[deploy] creating venv"
-  python3 -m venv .venv
+  if ! python3 -m venv .venv 2>/tmp/venv-err; then
+    cat /tmp/venv-err >&2 || true
+    PYVER="$(python3 -c 'import sys;print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
+    echo "[deploy] venv creation failed. The python venv package is likely missing." >&2
+    echo "[deploy] attempting: sudo apt-get install -y python3-venv python${PYVER}-venv" >&2
+    if command -v sudo >/dev/null && sudo apt-get install -y "python3-venv" "python${PYVER}-venv"; then
+      python3 -m venv .venv
+    else
+      echo "[deploy] ERROR: install the venv package and re-run, e.g.:" >&2
+      echo "          sudo apt-get install -y python${PYVER}-venv" >&2
+      exit 4
+    fi
+  fi
+  # Verify the venv is actually usable before relying on it.
+  [ -x .venv/bin/pip ] || { echo "[deploy] ERROR: .venv/bin/pip still missing after venv creation." >&2; exit 4; }
 fi
 echo "[deploy] syncing pinned Python deps"
 .venv/bin/pip install -q -r requirements.txt
