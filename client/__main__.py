@@ -57,6 +57,8 @@ def main() -> int:
     ap.add_argument("--wait-for-server", type=float, default=60.0,
                     help="seconds to keep retrying until the server's port is open "
                          "(survives starting the client before the server)")
+    ap.add_argument("--sig-alg", default=None,
+                    help="certificate signature algorithm (must match the server)")
     args = ap.parse_args()
 
     host = args.host or suite.server_addr
@@ -77,9 +79,14 @@ def main() -> int:
         emitter.close()
         return 1
 
-    proc = spawn_client(suite, host=args.host, port=port, keylog=keylog)
-    print(f"[client] connecting to {args.host}:{port} group={suite.group}",
-          file=sys.stderr)
+    # Use the CA matching the server's chosen signature algorithm.
+    sig_alg = args.sig_alg or suite.sig_alg
+    from app.gen_certs import ensure_cert
+    ca, _crt, _key = ensure_cert(sig_alg)
+
+    proc = spawn_client(suite, host=args.host, port=port, keylog=keylog, ca=ca)
+    print(f"[client] connecting to {args.host}:{port} group={suite.group} "
+          f"sig={sig_alg}", file=sys.stderr)
     # Let the handshake complete (it is milliseconds; we wait conservatively).
     time.sleep(args.connect_wait)
 

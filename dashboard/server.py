@@ -65,6 +65,14 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/api/metrics":
             f = RUNS / "metrics.json"
             self._json(json.loads(f.read_text()) if f.exists() else {"note": "no metrics yet (run on Pi, Phase 4)"})
+        elif path == "/api/algorithms":
+            from app.algorithms import SIG_ALGS, DEFAULT_SIG
+            self._json({
+                "default": DEFAULT_SIG,
+                "signature_algorithms": [
+                    {"id": a.id, "label": a.label, "fips": a.fips,
+                     "kind": a.kind, "note": a.note} for a in SIG_ALGS],
+            })
         else:
             self._json({"error": "not found"}, 404)
 
@@ -76,22 +84,33 @@ class Handler(BaseHTTPRequestHandler):
         length = int(self.headers.get("Content-Length", 0))
         payload = json.loads(self.rfile.read(length) or b"{}")
         message = str(payload.get("message", "hello quantum world"))
+        sig_alg = payload.get("sig_alg")  # optional; None -> suite default
 
-        # First capture a real handshake's artifacts (key shares, ML-DSA-65 sig),
-        # then run the instrumented message through the channel. The dashboard
-        # then renders both: the handshake story AND the message transformation.
+        # Validate the requested algorithm against the registry (fail clearly).
+        sig_args: list[str] = []
+        if sig_alg:
+            from app.algorithms import all_ids
+            if sig_alg not in all_ids():
+                self._json({"error": f"unknown signature algorithm {sig_alg!r}"}, 400)
+                return
+            sig_args = ["--sig-alg", sig_alg]
+
+        # First capture a real handshake's artifacts (key shares + the chosen
+        # signature), then run the instrumented message through the channel, so
+        # the dashboard renders both the handshake story AND the message.
         cap = subprocess.run(
             [sys.executable, "-m", "capture.handshake",
-             "--port", "14533", "--events-file", "runs/handshake.jsonl"],
+             "--port", "14533", "--events-file", "runs/handshake.jsonl", *sig_args],
             cwd=REPO_ROOT, capture_output=True, text=True,
         )
         proc = subprocess.run(
-            [sys.executable, "run_demo.py", "--message", message],
+            [sys.executable, "run_demo.py", "--message", message, *sig_args],
             cwd=REPO_ROOT, capture_output=True, text=True,
         )
         self._json({
             "returncode": proc.returncode,
             "capture_rc": cap.returncode,
+            "sig_alg": sig_alg or "ML-DSA-65",
             "stdout_tail": proc.stdout.splitlines()[-6:],
             "events": _events(),
         })

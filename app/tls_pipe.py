@@ -27,17 +27,21 @@ def _env(extra: dict[str, str] | None = None) -> dict[str, str]:
 
 
 def spawn_server(suite: Suite, *, host: str, port: int,
-                 keylog: Path | None = None) -> subprocess.Popen:
+                 keylog: Path | None = None,
+                 cert: Path | None = None, key: Path | None = None) -> subprocess.Popen:
     """Spawn `s_server` in raw byte-relay mode (no -www): stdin->TLS, TLS->stdout.
 
     With -quiet and no -www, s_server pipes its stdin to the client and the
     client's bytes to its stdout, giving us a clean bidirectional app channel.
+
+    cert/key override the suite default so the operator can pick the certificate
+    signature algorithm (app/algorithms.py) at the dashboard.
     """
     cmd = [
         suite.openssl_bin, "s_server",
         "-accept", f"{host}:{port}",
-        "-cert", str(suite.server_cert),
-        "-key", str(suite.server_key),
+        "-cert", str(cert or suite.server_cert),
+        "-key", str(key or suite.server_key),
         "-groups", suite.group,
         "-tls1_3",
         "-quiet",
@@ -50,13 +54,18 @@ def spawn_server(suite: Suite, *, host: str, port: int,
 
 
 def spawn_client(suite: Suite, *, host: str, port: int,
-                 keylog: Path | None = None) -> subprocess.Popen:
-    """Spawn `s_client` in raw byte-relay mode (-quiet): stdin->TLS, TLS->stdout."""
+                 keylog: Path | None = None,
+                 ca: Path | None = None) -> subprocess.Popen:
+    """Spawn `s_client` in raw byte-relay mode (-quiet): stdin->TLS, TLS->stdout.
+
+    ca overrides the suite default CA so the client trusts the CA matching the
+    server's chosen signature algorithm.
+    """
     cmd = [
         suite.openssl_bin, "s_client",
         "-connect", f"{host}:{port}",
         "-groups", suite.group,
-        "-CAfile", str(suite.ca_cert),
+        "-CAfile", str(ca or suite.ca_cert),
         "-tls1_3",
         "-quiet",
     ]

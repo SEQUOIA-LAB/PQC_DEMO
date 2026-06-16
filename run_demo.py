@@ -30,12 +30,23 @@ def main() -> int:
     ap.add_argument("--message", default="hello quantum world")
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=4433)
+    ap.add_argument("--sig-alg", default=None,
+                    help="certificate signature algorithm (app/algorithms.py); "
+                         "defaults to the suite default. Generates the cert if needed.")
     args = ap.parse_args()
 
     RUNS.mkdir(exist_ok=True)
     salt = secrets.token_hex(16)
     py = sys.executable
     env = {**os.environ, "PYTHONPATH": str(REPO_ROOT)}
+
+    # Resolve the certificate for the chosen signature algorithm (cached on disk).
+    sig_args: list[str] = []
+    if args.sig_alg:
+        from app.gen_certs import ensure_cert
+        ensure_cert(args.sig_alg)  # generate if first time for this algorithm
+        sig_args = ["--sig-alg", args.sig_alg]
+        print(f"[run_demo] certificate signature algorithm: {args.sig_alg}")
 
     server_events = RUNS / "server.jsonl"
     client_events = RUNS / "client.jsonl"
@@ -48,7 +59,7 @@ def main() -> int:
     server = subprocess.Popen(
         [py, "-m", "server", "--salt", salt, "--host", args.host,
          "--port", str(args.port), "--events-file", str(server_events),
-         "--keylog", str(RUNS / "server.keylog")],
+         "--keylog", str(RUNS / "server.keylog"), *sig_args],
         env=env, cwd=REPO_ROOT,
     )
     time.sleep(1.0)  # let s_server bind
@@ -58,7 +69,7 @@ def main() -> int:
         [py, "-m", "client", "--salt", salt, "--message", args.message,
          "--host", args.host, "--port", str(args.port),
          "--events-file", str(client_events),
-         "--keylog", str(RUNS / "client.keylog")],
+         "--keylog", str(RUNS / "client.keylog"), *sig_args],
         env=env, cwd=REPO_ROOT,
     )
 

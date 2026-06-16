@@ -43,6 +43,8 @@ def main() -> int:
     ap.add_argument("--port", type=int, default=None)
     ap.add_argument("--events-file", default=None)
     ap.add_argument("--keylog", default=None)
+    ap.add_argument("--sig-alg", default=None,
+                    help="certificate signature algorithm (defaults to suite default)")
     args = ap.parse_args()
 
     host = args.host or suite.server_addr
@@ -51,13 +53,19 @@ def main() -> int:
     run_salt = bytes.fromhex(args.salt)
     key, nonce_seed = derive_app_key(channel_binding(suite, run_salt))
 
+    # Resolve the cert for the chosen signature algorithm (defaults to suite).
+    sig_alg = args.sig_alg or suite.sig_alg
+    from app.gen_certs import ensure_cert
+    _ca, cert, srv_key = ensure_cert(sig_alg)
+
     emitter = EventEmitter("server", to_stdout=True,
                            file_path=args.events_file)
     keylog = Path(args.keylog) if args.keylog else None
 
-    proc = spawn_server(suite, host=args.host, port=port, keylog=keylog)
+    proc = spawn_server(suite, host=args.host, port=port, keylog=keylog,
+                        cert=cert, key=srv_key)
     print(f"[server] listening on {args.host}:{port} group={suite.group} "
-          f"sig={suite.sig_alg}", file=sys.stderr)
+          f"sig={sig_alg}", file=sys.stderr)
 
     try:
         # Read the framed message: header first (to learn ct length), then body.

@@ -33,26 +33,31 @@ RE_CERTVERIFY = re.compile(r"CertificateVerify, Length=(\d+)")
 RE_NAMEDGROUP = re.compile(r"NamedGroup:\s*(\S+)")
 
 
-def _spawn_server(suite, host, port, keylog):
+def _spawn_server(suite, host, port, keylog, cert, key):
     cmd = [suite.openssl_bin, "s_server", "-accept", f"{host}:{port}",
-           "-cert", str(suite.server_cert), "-key", str(suite.server_key),
+           "-cert", str(cert), "-key", str(key),
            "-groups", suite.group, "-tls1_3", "-www", "-quiet"]
     env = {**os.environ, **_OSSL_ENV, "SSLKEYLOGFILE": str(keylog)}
     return subprocess.Popen(cmd, stdout=subprocess.DEVNULL,
                             stderr=subprocess.DEVNULL, env=env)
 
 
-def _client_trace(suite, host, port, keylog) -> str:
+def _client_trace(suite, host, port, keylog, ca) -> str:
     cmd = [suite.openssl_bin, "s_client", "-connect", f"{host}:{port}",
-           "-groups", suite.group, "-CAfile", str(suite.ca_cert),
+           "-groups", suite.group, "-CAfile", str(ca),
            "-tls1_3", "-trace"]
     env = {**os.environ, **_OSSL_ENV, "SSLKEYLOGFILE": str(keylog)}
     p = subprocess.run(cmd, input=b"Q\n", capture_output=True, env=env, timeout=15)
     return (p.stdout + p.stderr).decode("utf-8", "replace")
 
 
-def capture(host: str, port: int, events_file: str | None) -> int:
+def capture(host: str, port: int, events_file: str | None,
+            sig_alg: str | None = None) -> int:
     suite = load_suite()
+    sig_alg = sig_alg or suite.sig_alg
+    from app.gen_certs import ensure_cert
+    ca, cert, key = ensure_cert(sig_alg)
+
     # Capture is a one-shot snapshot; start its events file fresh each run.
     if events_file:
         Path(events_file).unlink(missing_ok=True)
@@ -60,10 +65,10 @@ def capture(host: str, port: int, events_file: str | None) -> int:
     tmp = Path(tempfile.mkdtemp(prefix="pqc-capture-"))
     keylog = tmp / "keylog.txt"
 
-    srv = _spawn_server(suite, host, port, keylog)
+    srv = _spawn_server(suite, host, port, keylog, cert, key)
     time.sleep(1.0)
     try:
-        trace = _client_trace(suite, host, port, keylog)
+        trace = _client_trace(suite, host, port, keylog, ca)
     finally:
         srv.terminate()
 
@@ -88,16 +93,18 @@ def capture(host: str, port: int, events_file: str | None) -> int:
                                     f"(ML-KEM-768 ciphertext + X25519 pubkey)",
                      note="ML-KEM ciphertext is the encapsulation against the client key")
 
-    # Stage: sign_transcript / verify_signature — ML-DSA-65 CertificateVerify.
+    # Stage: sign_transcript / verify_signature — the chosen signature alg's
+    # CertificateVerify. The artifact_type reflects the selected algorithm.
     if certverify:
         n = int(certverify.group(1))
-        emitter.emit("sign_transcript", "ml_dsa_65_signature", algorithm=suite.sig_alg,
+        art = f"{sig_alg.lower().replace('-', '_')}_signature"
+        emitter.emit("sign_transcript", art, algorithm=sig_alg,
                      size_bytes=n,
-                     human_readable=f"ML-DSA-65 CertificateVerify signature, {n} bytes",
-                     note="server signs the handshake transcript with its ML-DSA-65 key")
-        emitter.emit("verify_signature", "ml_dsa_65_signature", algorithm=suite.sig_alg,
+                     human_readable=f"{sig_alg} CertificateVerify signature, {n} bytes",
+                     note=f"server signs the handshake transcript with its {sig_alg} key")
+        emitter.emit("verify_signature", art, algorithm=sig_alg,
                      size_bytes=n,
-                     human_readable="client verified the ML-DSA-65 signature (handshake authenticated)")
+                     human_readable=f"client verified the {sig_alg} signature (handshake authenticated)")
 
     # Stage: derive_secret — NOT byte-extractable. Emit a fingerprint of the
     # SSLKEYLOGFILE secret material instead (PROJECT_PLAN.md §13).
@@ -125,6 +132,8 @@ if __name__ == "__main__":
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=None)
     ap.add_argument("--events-file", default=None)
+    ap.add_argument("--sig-alg", default=None,
+                    help="certificate signature algorithm (defaults to suite default)")
     a = ap.parse_args()
     suite = load_suite()
-    raise SystemExit(capture(a.host, a.port or suite.server_port, a.events_file))
+    raise SystemExit(capture(a.host, a.port or suite.server_port, a.events_file, a.sig_alg))

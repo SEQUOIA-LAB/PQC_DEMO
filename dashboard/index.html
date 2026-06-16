@@ -26,6 +26,8 @@
   button { padding:10px 16px; background:var(--accent); color:#06231f;
     border:none; border-radius:6px; font:inherit; font-weight:700; cursor:pointer; }
   button.ghost { background:transparent; color:var(--fg); border:1px solid var(--line); }
+  select { padding:8px 10px; background:#0b1018; color:var(--fg);
+    border:1px solid var(--line); border-radius:6px; font:inherit; }
   .row { display:flex; gap:10px; align-items:center; margin-top:10px; flex-wrap:wrap; }
   .stage { border:1px solid var(--line); border-radius:8px; padding:10px 12px;
            margin:8px 0; opacity:.35; transition:opacity .2s, border-color .2s; }
@@ -61,6 +63,11 @@
              placeholder="type a message to send over the PQC-TLS channel" />
       <button id="send">Send through channel</button>
       <span id="status" class="muted"></span>
+    </div>
+    <div class="row">
+      <label class="muted" for="sigalg">Certificate signature:</label>
+      <select id="sigalg"></select>
+      <span id="sigalg-note" class="muted"></span>
     </div>
   </section>
 
@@ -161,17 +168,38 @@ async function loadEvents() {
   setActiveUpTo(1e9); // all on by default
 }
 
+let sigAlgsById = {};
+async function loadAlgorithms() {
+  const data = await (await fetch("/api/algorithms")).json();
+  const sel = document.getElementById("sigalg");
+  sel.innerHTML = "";
+  for (const a of data.signature_algorithms) {
+    sigAlgsById[a.id] = a;
+    const opt = document.createElement("option");
+    opt.value = a.id;
+    opt.textContent = a.label + (a.id === data.default ? "  (default)" : "");
+    if (a.id === data.default) opt.selected = true;
+    sel.appendChild(opt);
+  }
+  const showNote = () => {
+    const a = sigAlgsById[sel.value];
+    document.getElementById("sigalg-note").textContent = a ? `${a.fips} · ${a.note}` : "";
+  };
+  sel.onchange = showNote; showNote();
+}
+
 document.getElementById("send").onclick = async () => {
   const message = document.getElementById("msg").value;
+  const sig_alg = document.getElementById("sigalg").value;
   const status = document.getElementById("status");
-  status.textContent = "capturing a real PQC handshake + sending the message…";
+  status.textContent = `capturing a real PQC handshake (cert: ${sig_alg}) + sending…`;
   const r = await fetch("/api/run", {method:"POST",
-    headers:{"Content-Type":"application/json"}, body:JSON.stringify({message})});
+    headers:{"Content-Type":"application/json"}, body:JSON.stringify({message, sig_alg})});
   const data = await r.json();
   events = orderEvents(data.events || []);
   render(); setActiveUpTo(1e9);
   status.textContent = data.returncode === 0
-    ? "✓ handshake captured + message delivered over X25519MLKEM768 + ML-DSA-65"
+    ? `✓ delivered over X25519MLKEM768 + ${data.sig_alg}`
     : "✗ failed (see server log)";
 };
 
@@ -221,7 +249,7 @@ async function loadMetrics() {
 
 function escapeHtml(s){return String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));}
 
-loadEvents(); loadMetrics();
+loadEvents(); loadMetrics(); loadAlgorithms();
 </script>
 </body>
 </html>
